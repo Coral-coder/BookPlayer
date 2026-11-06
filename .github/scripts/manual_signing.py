@@ -160,7 +160,7 @@ def main() -> int:
 
     token = asc.make_token()
     certificate_id = find_certificate(args.certificate_serial, token)
-    group = "group.{}.files".format(args.bundle_id)
+    group = "group.{}".format(args.bundle_id)
 
     profiles = {}
     missing_group = []

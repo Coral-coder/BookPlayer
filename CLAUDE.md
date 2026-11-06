@@ -606,7 +606,7 @@ lines). It is the highest-risk file in the app.
   `.jellyfinConnection`, `.audiobookshelfConnection`, `.hardcoverToken`, `.hardcoverSession`.
 - **Correction to older docs: the Keychain is NOT scoped via an App Group / `kSecAttrAccessGroup`** — there is no
   access group set; sharing relies on the default app access group. (The App Group
-  `group.$(BP_BUNDLE_IDENTIFIER).files` is used for `UserDefaults.sharedDefaults` and file storage, **not** the
+  `group.$(BP_BUNDLE_IDENTIFIER)` is used for `UserDefaults.sharedDefaults` and file storage, **not** the
   Keychain.)
 - Every mutation emits `valueUpdatedPublisher.send((key, deleted:))`; `HardcoverService` observes it to
   start/stop tracking on token changes.
@@ -841,7 +841,7 @@ data, and share the error type `MediaServerIntegration/IntegrationError.swift` (
   build. **New service logic should come with a test** in `BookPlayerTests/` (XCTest only — no Swift Testing).
 - **App Group correctness:** data/defaults/files shared with widgets/watch/extension must use the App Group
   container / `UserDefaults.sharedDefaults`, not `.standard`. The App Group id
-  `group.$(BP_BUNDLE_IDENTIFIER).files` must stay consistent across the app, watch, widgets, and share-extension
+  `group.$(BP_BUNDLE_IDENTIFIER)` must stay consistent across the app, watch, widgets, and share-extension
   entitlements — it is the sole data channel for widgets and the share extension.
 - **Combine:** long-lived subscriptions → `private var disposeBag = Set<AnyCancellable>()` + `.store(in:)`;
   single-purpose → a named `AnyCancellable?` that is `.cancel()`'d before rebind. `[weak self]` in sinks/closures

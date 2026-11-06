@@ -49,7 +49,7 @@ without them. You only fill in your own Apple Team ID and bundle ID.
 It must be unique and in reverse-domain form. Example used below: `com.yourname.driftwoodlisten`
 (lowercase letters, numbers, dots, no spaces). The extensions get IDs that start with it
 (`….watchkitapp`, `….watchkitapp.widgets`, `….BookPlayerWidgetUI`, `….BookPlayerShareExtension`) and
-the shared App Group is `group.com.yourname.driftwoodlisten.files`. Xcode creates all of them for you
+the shared App Group is `group.com.yourname.driftwoodlisten`. Xcode creates all of them for you
 in step 5.
 
 ## 3. Get the code onto the Mac
