@@ -81,7 +81,23 @@ class RemoteItemCellViewModel: ObservableObject {
     downloadState = .notDownloaded
   }
 
+  /// Without sync there's nowhere to download the book from again, so it leaves the library
+  var removesFromLibrary: Bool {
+    !coreServices.syncService.isActive && item.externalResources?.streamingResource == nil
+  }
+
   func offloadItem() throws {
+    if removesFromLibrary {
+      if let currentPath = coreServices.playerManager.currentItem?.relativePath,
+         currentPath == item.relativePath || currentPath.hasPrefix(item.relativePath + "/")
+      {
+        coreServices.playerManager.stop()
+      }
+      try coreServices.libraryService.delete([item], mode: .deep)
+      NotificationCenter.default.post(name: .watchLocalLibraryChanged, object: nil)
+      return
+    }
+
     let fileURL = item.fileURL
     try FileManager.default.removeItem(at: fileURL)
     if item.type == .bound || item.type == .folder {

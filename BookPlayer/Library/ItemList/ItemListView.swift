@@ -18,6 +18,8 @@ struct ItemListView: View {
   @State var activeAlert: ItemListAlert?
   @State var activeSheet: ItemListSheet?
   @State var activeConfirmationDialog: ConfirmationDialogType?
+  /// Confirms a book was queued for the watch; its own alert, apart from the list's `activeAlert`
+  @State private var showsWatchSendNotice = false
   @State var folderInput = FolderCreationInput()
   @State var folderNameRequest: FolderNameRequest?
 
@@ -100,6 +102,11 @@ struct ItemListView: View {
 
   var body: some View {
     contentView
+      .alert("watch_send_title", isPresented: $showsWatchSendNotice) {
+        Button("ok_button", role: .cancel) {}
+      } message: {
+        Text("watch_send_started_title")
+      }
       .accessibilityFocused($focus, equals: .primary)
       .toolbar {
         mainToolbar()
@@ -710,6 +717,7 @@ extension ItemListView {
     markFinishedOption(for: items, forMenu: false)
     boundBooksOption(for: items, forMenu: false)
     downloadOption(for: items, forMenu: false)
+    sendToWatchOption(for: items, forMenu: false)
     deleteOption(for: items, forMenu: false)
   }
 
@@ -718,6 +726,7 @@ extension ItemListView {
   func itemOptionsMenu() -> some View {
     let items = model.selectedItems
     deleteOption(for: items, forMenu: true)
+    sendToWatchOption(for: items, forMenu: true)
     downloadOption(for: items, forMenu: true)
     boundBooksOption(for: items, forMenu: true)
     markFinishedOption(for: items, forMenu: true)
@@ -740,6 +749,7 @@ extension ItemListView {
     markFinishedOption(for: items, forMenu: false)
     boundBooksOption(for: items, forMenu: false)
     downloadOption(for: items, forMenu: false)
+    sendToWatchOption(for: items, forMenu: false)
     Divider()
     deleteOption(for: items, forMenu: false)
   }
@@ -855,6 +865,30 @@ extension ItemListView {
       }
       .menuTint(theme.primaryColor.opacity(!canCreateBound ? 0.3 : 1.0), enabled: forMenu)
       .disabled(!canCreateBound)
+    }
+  }
+
+  /// Offered for a single book whose file is on this iPhone, when a watch with the app is paired
+  @ViewBuilder
+  private func sendToWatchOption(for items: [SimpleLibraryItem], forMenu: Bool) -> some View {
+    if items.count == 1,
+       let item = items.first,
+       item.type == .book,
+       let watchService = AppServices.shared.coreServices?.watchService,
+       watchService.canSendBooksToWatch
+    {
+      Button {
+        select(items)
+        do {
+          try watchService.sendBookToWatch(item)
+          showsWatchSendNotice = true
+        } catch {
+          loadingState.error = error
+        }
+      } label: {
+        Label("watch_send_title", systemImage: "applewatch")
+      }
+      .menuTint(theme.primaryColor, enabled: forMenu)
     }
   }
 

@@ -122,7 +122,11 @@ struct RemoteItemListCellView: View {
           Image(systemName: "applewatch.slash")
             .imageScale(.large)
         }
-        .accessibilityLabel("remove_downloaded_file_title".localized)
+        .accessibilityLabel(
+          model.removesFromLibrary
+            ? "watch_remove_book_title".localized
+            : "remove_downloaded_file_title".localized
+        )
       case .notDownloaded:
         Button {
           Task {

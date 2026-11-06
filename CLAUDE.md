@@ -13,6 +13,20 @@ persistence, and auth/entitlement handling**. Default branch: **`develop`**.
 
 ---
 
+## This fork: Driftwood Listen (personal build)
+
+`AppEnvironment.isPersonalBuild` (`Shared/Utils/AppEnvironment.swift`, `true` here) turns this fork into a
+personal build named **Driftwood Listen** (`CFBundleDisplayName`; product and target names unchanged): no
+purchases (`isPurchaseEnabled` false), `hasPlusAccess()` always true, and no Profile tab, Pro banner, tip
+jar, second onboarding or watch account settings. Sync stays off (no `pro`/`lite` entitlement without
+RevenueCat), so the watch gets books from the iPhone instead of the cloud: the library's **Send to Apple
+Watch** (`PhoneWatchConnectivityService.sendBookToWatch`, `WCSession.transferFile`, metadata `kind: bookFile`)
+→ `WatchConnectivityService.session(_:didReceive:)` moves the file into the watch's Processed folder before
+returning (WatchConnectivity deletes it after) → `CoreServices.addReceivedBook` inserts it. A launch sweep
+(`addUntrackedReceivedBooks`, sync off only) adds files that arrived while the watch was suspended. With sync
+off, the watch's swipe action deletes a book instead of offloading it (nothing to download it from). Signing
+and TestFlight steps: `PERSONAL_BUILD.md`.
+
 ## ⚠️ Repo layout gotcha (read this first)
 
 The on-disk tree is deeply misleading. Before judging *where* code should live, know this:

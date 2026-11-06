@@ -599,3 +599,10 @@
 "transfer_web_path_conflict" = "Another file or folder you sent has this name";
 "transfer_web_done_hint" = "When you’re done, confirm in BookPlayer to import the files.";
 "transfer_web_load_error" = "Can’t reach BookPlayer. Check that its Transfer screen is still open.";
+"watch_send_title" = "Send to Apple Watch";
+"watch_send_started_title" = "Sending to your Apple Watch. It keeps going in the background and shows up in the watch's library when it's done.";
+"watch_transfer_unavailable_error" = "No Apple Watch with this app installed is connected.";
+"watch_transfer_not_book_error" = "Only single books can be sent to the watch. Open the folder and send its books one at a time.";
+"watch_transfer_file_missing_error" = "This book's file isn't on this iPhone, so it can't be sent.";
+"watch_remove_book_title" = "Remove from watch";
+"watch_control_iphone_title" = "Control iPhone";
