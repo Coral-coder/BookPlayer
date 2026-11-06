@@ -66,6 +66,20 @@
 			<key>CFBundleTypeIconFiles</key>
 			<array/>
 			<key>CFBundleTypeName</key>
+			<string>Ebook</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.idpf.epub-container</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeIconFiles</key>
+			<array/>
+			<key>CFBundleTypeName</key>
 			<string>Audiobook Archive</string>
 			<key>LSHandlerRank</key>
 			<string>Default</string>
@@ -410,6 +424,8 @@
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Enable microphone access so you can record audio</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Read Along listens to your audiobook on this device to highlight each word of its ebook as it's read.</string>
 	<key>NSSiriUsageDescription</key>
 	<string>Siri shortcuts</string>
 	<key>NSUserActivityTypes</key>

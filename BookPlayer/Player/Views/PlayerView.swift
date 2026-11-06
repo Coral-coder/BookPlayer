@@ -107,6 +107,14 @@ struct PlayerView: View {
           .environmentObject(theme)
         }
       }
+      .fullScreenCover(isPresented: $viewModel.showReadAlong) {
+        if let item = viewModel.playerManager.currentItem {
+          ReadAlongView {
+            ReadAlongViewModel(item: item, playerManager: viewModel.playerManager)
+          }
+          .environmentObject(theme)
+        }
+      }
       .fullScreenCover(isPresented: $viewModel.showButtonFreeScreen) {
         ButtonFreeView{
           ButtonFreeViewModel(

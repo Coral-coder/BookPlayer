@@ -201,6 +201,7 @@ struct ItemListView: View {
           .audio,
           .movie,
           .zip,
+          .epub,
           .folder,
         ],
         allowsMultipleSelection: true

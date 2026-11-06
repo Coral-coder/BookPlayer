@@ -23,6 +23,8 @@ struct LibraryRootView: View {
 
   @State private var importOperationState = ImportOperationState()
   @State private var loadingState = LoadingOverlayState()
+  /// Says where EPUBs from an import went: the read-along shelf, not the library
+  @State private var showsEbookShelvedNotice = false
 
   @StateObject private var documentFolderWatcher = DirectoryWatcher.watch(
     DataManager.getDocumentsFolderURL(),
@@ -112,6 +114,11 @@ struct LibraryRootView: View {
       .onReceive(sharedFolderWatcher.newFilesPublisher) { files in
         files.forEach { importManager.process($0) }
       }
+      .alert("read_along_ebook_added_title", isPresented: $showsEbookShelvedNotice) {
+        Button("ok_button", role: .cancel) {}
+      } message: {
+        Text("read_along_ebook_added_message")
+      }
       .onReceive(importManager.operationPublisher) { operation in
         importOperationState.isOperationActive = true
         importOperationState.processingTitle = String.localizedStringWithFormat(
@@ -122,6 +129,9 @@ struct LibraryRootView: View {
           DispatchQueue.main.async {
             self.importOperationState.isOperationActive = false
             self.importOperationState.processingTitle = ""
+            if !operation.shelvedEbooks.isEmpty, operation.processedFiles.isEmpty {
+              self.showsEbookShelvedNotice = true
+            }
             self.handleOperationCompletion(.local(files: operation.processedFiles), suggestedFolderName: operation.suggestedFolderName)
           }
         }

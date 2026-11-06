@@ -38,6 +38,7 @@ final class PlayerViewModel: ObservableObject {
   @Published var showsCustomSleepTimer = false
   @Published var displaySheet = false
   @Published var showButtonFreeScreen = false
+  @Published var showReadAlong = false
   /// Whether the current chapter's file is a video (drives the video surface + fullscreen button)
   @Published var isVideoItem = false
 
@@ -690,6 +691,13 @@ final class PlayerViewModel: ObservableObject {
       )
     )
     
+    actions.append(
+      BPActionItem(
+        title: "read_along_title".localized,
+        handler: { [weak self] in self?.showReadAlong = true }
+      )
+    )
+
     actions.append(
       BPActionItem(
         title: "button_free_title".localized,
