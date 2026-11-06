@@ -11,6 +11,26 @@ if [ -d /Applications/Xcode_27.1.app ]; then
 fi
 xcodebuild -version
 
+# Xcode reads the App Store Connect key more strictly than openssl (which asc.py uses): strip
+# carriage returns and rewrite it as standard PKCS#8 PEM. Prints only its shape, never the key.
+if [ -n "${ASC_KEY_PATH:-}" ] && [ -f "$ASC_KEY_PATH" ]; then
+  tr -d '\r' < "$ASC_KEY_PATH" > "$ASC_KEY_PATH.clean"
+  if openssl pkey -in "$ASC_KEY_PATH.clean" -out "$ASC_KEY_PATH.pem" 2>/dev/null; then
+    mv "$ASC_KEY_PATH.pem" "$ASC_KEY_PATH"
+  else
+    mv "$ASC_KEY_PATH.clean" "$ASC_KEY_PATH"
+  fi
+  rm -f "$ASC_KEY_PATH.clean" "$ASC_KEY_PATH.pem"
+  chmod 600 "$ASC_KEY_PATH"
+  echo "API key file: $(head -1 "$ASC_KEY_PATH"), $(wc -l < "$ASC_KEY_PATH") lines"
+fi
+for name in ASC_KEY_ID ASC_ISSUER_ID; do
+  value="${!name:-}"
+  if [ "$value" != "$(printf '%s' "$value" | tr -d '[:space:]')" ]; then
+    echo "::warning::$name has whitespace in it"
+  fi
+done
+
 team=$(jq -r '.APPLE_TEAM_ID // empty' <<<"$SECRETS_JSON")
 if [ -z "$team" ]; then echo "::error::APPLE_TEAM_ID secret is missing"; exit 1; fi
 bundle_id="${BUNDLE_ID:-com.lightwave.driftwood}"

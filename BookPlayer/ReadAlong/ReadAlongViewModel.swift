@@ -236,7 +236,7 @@ final class ReadAlongViewModel: ObservableObject {
   }
 
   /// The last word that starts at or before `time` (the first word before the narration reaches it)
-  static func wordIndex(at time: TimeInterval, in times: [TimeInterval]) -> Int {
+  nonisolated static func wordIndex(at time: TimeInterval, in times: [TimeInterval]) -> Int {
     var low = 0
     var high = times.count - 1
     var found = 0
