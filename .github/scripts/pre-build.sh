@@ -54,7 +54,8 @@ elif [ -n "$key_team" ]; then
 else
   echo "::warning::Couldn't read the App Store Connect key's team"
 fi
-echo "SIGNING_TEAM_ID=$team" >> "$GITHUB_ENV"
+# The workflow passes $TEAM_ID to Xcode: point it at the team that will sign
+echo "TEAM_ID=$team" >> "$GITHUB_ENV"
 
 # Some Xcode versions only find an API key in these folders
 for folder in "$HOME/.appstoreconnect/private_keys" "$HOME/private_keys"; do

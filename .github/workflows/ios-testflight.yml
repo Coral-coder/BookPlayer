@@ -307,7 +307,7 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="${SIGNING_TEAM_ID:-$TEAM_ID}" CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
             CODE_SIGN_IDENTITY="Apple Development" PROVISIONING_PROFILE_SPECIFIER= \
             ENABLE_DEBUG_DYLIB=NO ENABLE_PREVIEWS=NO \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
@@ -330,7 +330,7 @@ jobs:
           <plist version="1.0"><dict>
             <key>method</key><string>app-store-connect</string>
             <key>destination</key><string>upload</string>
-            <key>teamID</key><string>${SIGNING_TEAM_ID:-$TEAM_ID}</string>
+            <key>teamID</key><string>$TEAM_ID</string>
             <key>signingStyle</key><string>automatic</string>
             <key>manageAppVersionAndBuildNumber</key><false/>
             <key>uploadSymbols</key><true/>
@@ -381,5 +381,5 @@ jobs:
       - name: Remove keys
         if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/signing.p12" "$HOME/.appstoreconnect/private_keys" "$HOME/private_keys"
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/signing.p12"
           if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true; fi
