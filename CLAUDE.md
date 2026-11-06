@@ -13,10 +13,10 @@ persistence, and auth/entitlement handling**. Default branch: **`develop`**.
 
 ---
 
-## This fork: Driftwood Listen (personal build)
+## This fork: Driftwood (personal build)
 
 `AppEnvironment.isPersonalBuild` (`Shared/Utils/AppEnvironment.swift`, `true` here) turns this fork into a
-personal build named **Driftwood Listen** (`CFBundleDisplayName`; product and target names unchanged): no
+personal build named **Driftwood** (`CFBundleDisplayName`; product and target names unchanged): no
 purchases (`isPurchaseEnabled` false), `hasPlusAccess()` always true, and no Profile tab, Pro banner, tip
 jar, second onboarding or watch account settings. Sync stays off (no `pro`/`lite` entitlement without
 RevenueCat), so the watch gets books from the iPhone instead of the cloud: the library's **Send to Apple

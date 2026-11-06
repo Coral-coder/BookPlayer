@@ -1,6 +1,6 @@
-# Driftwood Listen: personal build and TestFlight
+# Driftwood: personal build and TestFlight
 
-This fork builds BookPlayer as **Driftwood Listen**, a personal build:
+This fork builds BookPlayer as **Driftwood**, a personal build:
 
 - **No subscriptions or tips.** The Profile tab (sign-in, cloud sync, plans), the Pro banner, the tip jar
   and the plans/tips onboarding are gone. Every perk the free tier used to lock (themes, app icons and
@@ -88,8 +88,8 @@ Keep `BP_ENTITLEMENTS = BookPlayer-NoCarPlay`. CarPlay needs a separate approval
 ## 7. Create the app in App Store Connect
 
 1. Go to <https://appstoreconnect.apple.com> → **Apps** → **+** → **New App**.
-2. Platform: iOS. Name: **Driftwood Listen** (if it's taken, try "Driftwood Listen Audio" or similar.
-   The name on your home screen stays "Driftwood Listen"). Language: English. Bundle ID: pick the one from
+2. Platform: iOS. Name: **Driftwood** (if it's taken, try "Driftwood Audio" or similar.
+   The name on your home screen stays "Driftwood"). Language: English. Bundle ID: pick the one from
    step 2 (it appears after step 5). SKU: anything, such as `driftwoodlisten`. User Access: Full Access.
 
 ## 8. Archive and upload
