@@ -22,8 +22,15 @@ secret BUILD_CERTIFICATE_P12_BASE64 | base64 --decode > "$work/distribution.p12"
 security create-keychain -p "$keychain_password" "$keychain"
 security set-keychain-settings -lut 7200 "$keychain"
 security unlock-keychain -p "$keychain_password" "$keychain"
-security import "$work/distribution.p12" -k "$keychain" -P "$(secret P12_PASSWORD)" \
-  -T /usr/bin/codesign -T /usr/bin/security
+# The .p12 uses modern (AES / SHA-256 MAC) encryption, which macOS's importer rejects ("MAC
+# verification failed"): unpack it with openssl and import the key and certificate as PEM
+export P12_PASS="$(secret P12_PASSWORD)"
+openssl pkcs12 -in "$work/distribution.p12" -passin env:P12_PASS -nocerts -nodes -out "$work/key.pem"
+openssl pkcs12 -in "$work/distribution.p12" -passin env:P12_PASS -clcerts -nokeys -out "$work/cert.pem"
+unset P12_PASS
+security import "$work/key.pem" -k "$keychain" -f openssl -t priv -T /usr/bin/codesign -T /usr/bin/security
+security import "$work/cert.pem" -k "$keychain" -T /usr/bin/codesign -T /usr/bin/security
+rm -f "$work/key.pem" "$work/cert.pem"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
 security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 rm -f "$work/distribution.p12"
