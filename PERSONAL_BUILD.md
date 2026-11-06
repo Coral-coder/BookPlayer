@@ -1,5 +1,19 @@
 # Driftwood: personal build and TestFlight
 
+## Uploading from GitHub (no Mac needed)
+
+The Apple keys come from `Coral-coder/Dev_deploy_setup` (Actions → **Set up app repo**, repos =
+`BookPlayer`). `.github/workflows/ios-testflight.yml` builds on GitHub's Xcode 27 runner, and
+`.github/scripts/pre-build.sh` writes the two xcconfig files there with your team and
+`com.lightwave.driftwood`.
+
+- Create the app once in App Store Connect (Apps → + → New App, name **Driftwood**, bundle ID
+  `com.lightwave.driftwood`, SKU `driftwood`). Apple's API can't create it.
+- Then push to `develop` with `*u` in the commit's first line (or Actions → **iOS TestFlight** →
+  Run workflow). `*b` only archives, as a check.
+
+The steps below are for building on your own Mac instead.
+
 This fork builds BookPlayer as **Driftwood**, a personal build:
 
 - **No subscriptions or tips.** The Profile tab (sign-in, cloud sync, plans), the Pro banner, the tip jar
