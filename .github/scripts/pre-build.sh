@@ -34,6 +34,34 @@ done
 team=$(jq -r '.APPLE_TEAM_ID // empty' <<<"$SECRETS_JSON")
 if [ -z "$team" ]; then echo "::error::APPLE_TEAM_ID secret is missing"; exit 1; fi
 bundle_id="${BUNDLE_ID:-com.lightwave.driftwood}"
+
+# Xcode signs in to the team it's given: if that isn't the API key's team, it fails with
+# "Authentication failed". The key's own team is the seed ID App Store Connect gives a bundle ID.
+key_team=$(python3 - "$bundle_id" <<'PY' 2>/dev/null || true
+import os, sys, urllib.parse
+sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], ".github", "scripts"))
+import asc
+token = asc.make_token()
+found = asc.call("GET", "/bundleIds?filter[identifier]=" + urllib.parse.quote(sys.argv[1]) + "&limit=1", token)
+print(found["data"][0]["attributes"]["seedId"] if found.get("data") else "")
+PY
+)
+if [ -n "$key_team" ] && [ "$key_team" != "$team" ]; then
+  echo "::warning::APPLE_TEAM_ID isn't the App Store Connect key's team; signing with the key's team instead"
+  team="$key_team"
+elif [ -n "$key_team" ]; then
+  echo "APPLE_TEAM_ID matches the App Store Connect key's team"
+else
+  echo "::warning::Couldn't read the App Store Connect key's team"
+fi
+echo "SIGNING_TEAM_ID=$team" >> "$GITHUB_ENV"
+
+# Some Xcode versions only find an API key in these folders
+for folder in "$HOME/.appstoreconnect/private_keys" "$HOME/private_keys"; do
+  mkdir -p "$folder"
+  cp "$ASC_KEY_PATH" "$folder/AuthKey_${ASC_KEY_ID}.p8"
+  chmod 600 "$folder/AuthKey_${ASC_KEY_ID}.p8"
+done
 hardcover=$(jq -r '.BP_HARDCOVER_CLIENT_ID // empty' <<<"$SECRETS_JSON")
 
 for config in Debug Release; do
