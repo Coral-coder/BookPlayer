@@ -100,3 +100,11 @@ BP_HARDCOVER_CLIENT_ID = $hardcover
 XCCONFIG
 done
 echo "Wrote BuildConfiguration/{Debug,Release}.xcconfig for $bundle_id"
+
+# Xcode 27.1 can't sign in with the API key on GitHub's runner, so when a distribution
+# certificate is available, sign and upload here, through the API instead
+if [ -n "$(jq -r '.BUILD_CERTIFICATE_P12_BASE64 // empty' <<<"$SECRETS_JSON")" ]; then
+  bash "$GITHUB_WORKSPACE/.github/scripts/archive-and-upload.sh" "$team" "$bundle_id"
+else
+  echo "::warning::No BUILD_CERTIFICATE_P12_BASE64 secret: leaving signing to Xcode"
+fi
