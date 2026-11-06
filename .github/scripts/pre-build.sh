@@ -57,6 +57,21 @@ fi
 # The workflow passes $TEAM_ID to Xcode: point it at the team that will sign
 echo "TEAM_ID=$team" >> "$GITHUB_ENV"
 
+# What this key may do in Certificates, Identifiers & Profiles, which Xcode's automatic signing
+# needs (prints only HTTP outcomes)
+python3 - <<'PY' || true
+import os, sys
+sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], ".github", "scripts"))
+import asc
+token = asc.make_token()
+for path in ["/certificates?limit=1", "/profiles?limit=1", "/devices?limit=1", "/bundleIds?limit=1"]:
+    try:
+        result = asc.call("GET", path, token)
+        print("Key check", path.split("?")[0], "OK,", len(result.get("data", [])), "item(s)")
+    except SystemExit as error:
+        print("Key check", path.split("?")[0], "FAILED:", str(error).splitlines()[0])
+PY
+
 # Some Xcode versions only find an API key in these folders
 for folder in "$HOME/.appstoreconnect/private_keys" "$HOME/private_keys"; do
   mkdir -p "$folder"
