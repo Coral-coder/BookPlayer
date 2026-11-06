@@ -27,10 +27,16 @@ security unlock-keychain -p "$keychain_password" "$keychain"
 export P12_PASS="$(secret P12_PASSWORD)"
 openssl pkcs12 -in "$work/distribution.p12" -passin env:P12_PASS -nocerts -nodes -out "$work/key.pem"
 openssl pkcs12 -in "$work/distribution.p12" -passin env:P12_PASS -clcerts -nokeys -out "$work/cert.pem"
+# Repack as the legacy .p12 macOS reads (3DES, SHA-1 MAC)
+openssl pkcs12 -export -legacy -inkey "$work/key.pem" -in "$work/cert.pem" \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
+  -passout env:P12_PASS -out "$work/legacy.p12" 2>/dev/null \
+  || openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
+       -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
+       -passout env:P12_PASS -out "$work/legacy.p12"
+security import "$work/legacy.p12" -k "$keychain" -P "$P12_PASS" -T /usr/bin/codesign -T /usr/bin/security
 unset P12_PASS
-security import "$work/key.pem" -k "$keychain" -f openssl -t priv -T /usr/bin/codesign -T /usr/bin/security
-security import "$work/cert.pem" -k "$keychain" -T /usr/bin/codesign -T /usr/bin/security
-rm -f "$work/key.pem" "$work/cert.pem"
+rm -f "$work/key.pem" "$work/cert.pem" "$work/legacy.p12"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
 security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 rm -f "$work/distribution.p12"
