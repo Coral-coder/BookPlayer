@@ -67,6 +67,14 @@ struct ReadAlongView: View {
       VStack(spacing: 0) {
         if model.phase != .following {
           syncBanner
+        } else if let summary = model.syncSummary {
+          Text(summary)
+            .bpFont(.caption)
+            .foregroundStyle(model.isEstimated ? Color.orange : theme.secondaryColor)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+            .background(theme.secondarySystemBackgroundColor)
         }
         textView
       }

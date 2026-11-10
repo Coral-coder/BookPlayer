@@ -28,6 +28,10 @@ final class ReadAlongViewModel: ObservableObject {
   @Published private(set) var isPlaying = false
   @Published private(set) var shelf: [ImportedEbook] = []
   @Published var error: Error?
+  /// How the last sync went, shown under the text
+  @Published private(set) var syncSummary: String?
+  /// The timing is spread by word count, not matched to the narration
+  @Published private(set) var isEstimated = false
 
   let bookTitle: String
   let playerManager: PlayerManager
@@ -66,8 +70,14 @@ final class ReadAlongViewModel: ObservableObject {
     }
 
     show(text)
-    if let timing = ReadAlongStore.timing(forBookId: bookId), timing.wordTimes.count == text.wordCount {
+    /// Timings saved before syncs recorded how they went could pile every word on one time (the
+    /// highlight sat on the last word): those need syncing again
+    if let timing = ReadAlongStore.timing(forBookId: bookId),
+       timing.wordTimes.count == text.wordCount,
+       timing.matchedWords != nil
+    {
       wordTimes = timing.wordTimes
+      describe(timing)
       startFollowing()
     } else {
       phase = .textOnly
@@ -174,16 +184,23 @@ final class ReadAlongViewModel: ObservableObject {
           self.phase = .syncing(progress)
         }
         try Task.checkCancellation()
+        guard !spoken.isEmpty else { throw ReadAlongError.nothingHeard }
 
-        let times = await Task.detached(priority: .userInitiated) {
-          ReadAlongAligner.align(bookWords: bookWords, spoken: spoken)
+        let result = await Task.detached(priority: .userInitiated) {
+          ReadAlongAligner.align(bookWords: bookWords, spoken: spoken, duration: duration)
         }.value
-        try ReadAlongStore.saveTiming(
-          .init(wordTimes: times, localeIdentifier: locale.identifier, createdAt: Date()),
-          forBookId: bookId
+        let timing = ReadAlongTiming(
+          wordTimes: result.times,
+          localeIdentifier: locale.identifier,
+          createdAt: Date(),
+          matchedWords: result.matchedWords,
+          heardWords: result.heardWords,
+          isEstimated: result.isEstimated
         )
+        try ReadAlongStore.saveTiming(timing, forBookId: bookId)
 
-        self?.finishSync(times: times)
+        self?.describe(timing)
+        self?.finishSync(times: result.times)
       } catch is CancellationError {
         self?.finishSync(times: nil)
       } catch {
@@ -191,6 +208,17 @@ final class ReadAlongViewModel: ObservableObject {
         self?.error = error
       }
     }
+  }
+
+  private func describe(_ timing: ReadAlongTiming) {
+    let total = max(timing.wordTimes.count, 1)
+    let matched = timing.matchedWords ?? 0
+    let percent = Int((Double(matched) / Double(total) * 100).rounded())
+    isEstimated = timing.isEstimated ?? false
+    syncSummary = String(
+      format: (isEstimated ? "read_along_sync_estimated_summary" : "read_along_sync_summary").localized,
+      timing.heardWords ?? 0, matched, percent
+    )
   }
 
   private func finishSync(times: [TimeInterval]?) {

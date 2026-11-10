@@ -21,23 +21,23 @@ final class ReadAlongTests: XCTestCase {
 
   func testAlignsAnExactNarration() {
     let words = "the lantern keeper climbed the long stair".split(separator: " ").map(String.init)
-    let times = ReadAlongAligner.align(bookWords: words, spoken: spoken("The lantern keeper climbed the long stair."))
-    XCTAssertEqual(times, [0, 1, 2, 3, 4, 5, 6])
+    let result = ReadAlongAligner.align(
+      bookWords: words, spoken: spoken("The lantern keeper climbed the long stair."), duration: 10
+    )
+    XCTAssertEqual(result.times, [0, 1, 2, 3, 4, 5, 6])
+    XCTAssertEqual(result.matchedWords, 7)
+    XCTAssertFalse(result.isEstimated)
   }
 
   func testSpreadsTimesOverWordsTheRecognizerMissed() {
-    let words = ["a", "quiet", "harbor", "town", "slept"]
-    let times = ReadAlongAligner.align(
-      bookWords: words,
-      spoken: [SpokenWord(text: "a", start: 10), SpokenWord(text: "slept", start: 14)]
-    )
+    let times = ReadAlongAligner.fillGaps([10, nil, nil, nil, 14], duration: 20)
     XCTAssertEqual(times, [10, 11, 12, 13, 14])
   }
 
   func testSkipsANarratorIntroTheEbookDoesNotHave() {
     let book = "chapter one the river ran north past the mill".split(separator: " ").map(String.init)
     let narration = spoken("this audiobook is read for you by a narrator today chapter one the river ran north past the mill")
-    let times = ReadAlongAligner.align(bookWords: book, spoken: narration)
+    let times = ReadAlongAligner.align(bookWords: book, spoken: narration, duration: 30).times
     XCTAssertEqual(times.first, 10)
     XCTAssertEqual(times.last, 18)
   }
@@ -47,15 +47,37 @@ final class ReadAlongTests: XCTestCase {
     let book = (frontMatter + " the storm reached the coast at dawn and the boats stayed home")
       .split(separator: " ").map(String.init)
     let narration = spoken("the storm reached the coast at dawn and the boats stayed home", from: 100)
-    let times = ReadAlongAligner.align(bookWords: book, spoken: narration)
+    let times = ReadAlongAligner.align(bookWords: book, spoken: narration, duration: 120).times
     let stormIndex = book.firstIndex(of: "storm")!
     XCTAssertEqual(times[stormIndex], 101)
     XCTAssertEqual(times.last, 111)
   }
 
   func testTimesNeverGoBackwards() {
-    let times = ReadAlongAligner.fillGaps([5, nil, 3, nil, 8])
+    let times = ReadAlongAligner.fillGaps([5, nil, 3, nil, 8], duration: 10)
     XCTAssertEqual(times, times.sorted())
+  }
+
+  /// The bug from the first TestFlight build: one match put every other word at its time, so the
+  /// highlight jumped to the last word and stayed there
+  func testOneMatchStillSpreadsTheBookOverItsDuration() {
+    let times = ReadAlongAligner.fillGaps([nil, nil, 4, nil, nil], duration: 100)
+    XCTAssertEqual(times.first, 0)
+    XCTAssertEqual(times[2], 4)
+    XCTAssertEqual(times.last, 100)
+    XCTAssertEqual(ReadAlongViewModel.wordIndex(at: 60, in: times), 3)
+  }
+
+  func testNarrationThatMatchesNothingIsAnEstimate() {
+    let book = (1...200).map { "word\($0)" }
+    let result = ReadAlongAligner.align(
+      bookWords: book, spoken: spoken("completely different words from another book entirely"), duration: 400
+    )
+    XCTAssertTrue(result.isEstimated)
+    XCTAssertEqual(result.matchedWords, 0)
+    XCTAssertEqual(result.times.first, 0)
+    XCTAssertEqual(result.times.last, 400)
+    XCTAssertEqual(ReadAlongViewModel.wordIndex(at: 200, in: result.times), 99)
   }
 
   func testWordIndexFindsTheWordBeingRead() {

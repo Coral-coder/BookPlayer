@@ -31,6 +31,10 @@ struct ReadAlongTiming: Codable {
   var wordTimes: [TimeInterval]
   var localeIdentifier: String
   var createdAt: Date
+  /// How the sync went (nil in timings saved before these were kept)
+  var matchedWords: Int?
+  var heardWords: Int?
+  var isEstimated: Bool?
 }
 
 /// An EPUB on the ebooks shelf

@@ -628,3 +628,6 @@
 "read_along_language_error" = "This iPhone can't transcribe %@ yet.";
 "read_along_audio_missing_error" = "Download this audiobook to the iPhone first: Read Along listens to the file on the device.";
 "read_along_audio_unreadable_error" = "This audiobook's file format can't be read for Read Along.";
+"read_along_nothing_heard_error" = "Read Along couldn't hear any words in this audiobook. Check that the book's language matches the ebook, then sync again.";
+"read_along_sync_summary" = "Synced: heard %d words, matched %d of the ebook's (%d%%).";
+"read_along_sync_estimated_summary" = "Heard %d words but matched only %d of the ebook's (%d%%), so the highlight follows an estimate. Check that the ebook is the same edition as the audiobook, then Sync again from the menu.";

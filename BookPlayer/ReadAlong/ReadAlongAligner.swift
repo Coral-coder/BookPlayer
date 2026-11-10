@@ -11,6 +11,17 @@ import AVFoundation
 import Foundation
 import Speech
 
+/// Times for the ebook's words, and how well the narration matched them
+struct AlignmentResult: Equatable {
+  var times: [TimeInterval]
+  /// Ebook words matched to a spoken word
+  var matchedWords: Int
+  /// Spoken words the recognizer heard
+  var heardWords: Int
+  /// Too few matches to trust: the times are spread over the book by word count instead
+  var isEstimated: Bool
+}
+
 struct SpokenWord: Equatable {
   let text: String
   /// Seconds into the whole book
@@ -22,6 +33,7 @@ enum ReadAlongError: LocalizedError {
   case languageNotSupported(String)
   case audioNotOnDevice
   case audioUnreadable
+  case nothingHeard
 
   var errorDescription: String? {
     switch self {
@@ -33,6 +45,8 @@ enum ReadAlongError: LocalizedError {
       return "read_along_audio_missing_error".localized
     case .audioUnreadable:
       return "read_along_audio_unreadable_error".localized
+    case .nothingHeard:
+      return "read_along_nothing_heard_error".localized
     }
   }
 }
@@ -59,11 +73,18 @@ enum ReadAlongAligner {
   /// common word can't pull the position forward. After several spoken words in a row match
   /// nothing (an intro the ebook doesn't have, front matter the narrator skips), the position
   /// jumps to where the next four spoken words appear together in the book.
-  static func align(bookWords: [String], spoken: [SpokenWord]) -> [TimeInterval] {
+  static func align(bookWords: [String], spoken: [SpokenWord], duration: TimeInterval) -> AlignmentResult {
     let book = bookWords.map(normalize)
     let heard = spoken.map { (word: normalize($0.text), start: $0.start) }.filter { !$0.word.isEmpty }
-    guard !book.isEmpty else { return [] }
-    guard !heard.isEmpty else { return Array(repeating: 0, count: book.count) }
+    guard !book.isEmpty else {
+      return AlignmentResult(times: [], matchedWords: 0, heardWords: heard.count, isEstimated: false)
+    }
+    guard !heard.isEmpty else {
+      return AlignmentResult(
+        times: fillGaps([TimeInterval?](repeating: nil, count: book.count), duration: duration),
+        matchedWords: 0, heardWords: 0, isEstimated: true
+      )
+    }
 
     let lookahead = 40
     let missesBeforeResync = 8
@@ -136,26 +157,41 @@ enum ReadAlongAligner {
       index += 1
     }
 
-    return fillGaps(times)
+    let matched = times.reduce(0) { $0 + ($1 == nil ? 0 : 1) }
+    /// A real sync matches most of what was heard; a scatter of chance matches ("the", "and") from a
+    /// different edition or language is no sync at all
+    let isEstimated = matched < max(3, min(heard.count, book.count) / 4)
+    let finalTimes = isEstimated
+      ? fillGaps([TimeInterval?](repeating: nil, count: book.count), duration: duration)
+      : fillGaps(times, duration: duration)
+    return AlignmentResult(times: finalTimes, matchedWords: matched, heardWords: heard.count, isEstimated: isEstimated)
   }
 
-  /// Unmatched words get times spread evenly between their matched neighbours
-  static func fillGaps(_ times: [TimeInterval?]) -> [TimeInterval] {
-    let anchors = times.enumerated().compactMap { index, time in time.map { (index, $0) } }
-    guard let first = anchors.first, let last = anchors.last else {
-      return Array(repeating: 0, count: times.count)
+  /// Unmatched words get times spread evenly between their matched neighbours; before the first
+  /// match they're spread from the start of the book, after the last one to its end. With no
+  /// match at all, every word gets an even share of the book.
+  static func fillGaps(_ times: [TimeInterval?], duration: TimeInterval) -> [TimeInterval] {
+    guard !times.isEmpty else { return [] }
+
+    var anchors = times.enumerated().compactMap { index, time in time.map { (index, $0) } }
+    let end = max(duration, anchors.last?.1 ?? 0)
+    if anchors.first?.0 != 0 {
+      anchors.insert((0, 0), at: 0)
+    }
+    if anchors.last?.0 != times.count - 1 {
+      anchors.append((times.count - 1, end))
     }
 
-    var result = [TimeInterval](repeating: first.1, count: times.count)
+    var result = [TimeInterval](repeating: 0, count: times.count)
+    if anchors.count == 1 {
+      result[0] = anchors[0].1
+    }
     for (previous, next) in zip(anchors, anchors.dropFirst()) {
-      let span = Double(next.0 - previous.0)
+      let span = Double(max(next.0 - previous.0, 1))
       for index in previous.0...next.0 {
         let fraction = Double(index - previous.0) / span
         result[index] = previous.1 + (next.1 - previous.1) * fraction
       }
-    }
-    for index in last.0..<times.count {
-      result[index] = last.1
     }
 
     /// The narration can't go backwards: a mismatch can't be allowed to make the highlight jump back
