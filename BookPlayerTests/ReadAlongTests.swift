@@ -102,4 +102,45 @@ final class ReadAlongTests: XCTestCase {
     let html = "<html><body><p>One<br>Two</p><p>Three &amp; four</body>"
     XCTAssertEqual(XHTMLTextParser.paragraphs(in: Data(html.utf8)), ["One", "Two", "Three & four"])
   }
+
+  // MARK: - Live following
+
+  private let passage = """
+    the keeper of the lantern climbed the long stair every evening and counted the steps \
+    while the gulls argued on the rocks below and the tide pulled at the old pier \
+    when the light was lit he wrote the weather in a small green book
+    """
+
+  func testPlacesNarrationThatDiffersFromTheEbook() {
+    let book = (String(repeating: "front matter page ", count: 50) + passage).split(separator: " ").map(String.init)
+    let matcher = ReadAlongMatcher(bookWords: book)
+    /// The narrator skips "long" and says "seagulls": the rest still places
+    let narration = spoken(
+      "the keeper of the lantern climbed the stair every evening and counted the steps while the seagulls argued",
+      from: 300
+    )
+    let placements = matcher.place(narration, near: nil)
+
+    let keeper = book.firstIndex(of: "keeper")!
+    XCTAssertEqual(placements.first?.word, keeper - 1)
+    XCTAssertEqual(placements.first?.time, 300)
+    XCTAssertTrue(placements.contains { $0.word == book.firstIndex(of: "counted")! })
+    XCTAssertGreaterThan(placements.count, 12)
+  }
+
+  func testNarrationNotInTheEbookPlacesNothing() {
+    let matcher = ReadAlongMatcher(bookWords: passage.split(separator: " ").map(String.init))
+    let placements = matcher.place(spoken("chapter twelve the market opened before sunrise and nobody noticed"), near: 0)
+    XCTAssertTrue(placements.isEmpty)
+  }
+
+  func testWordBetweenPlacedWordsFollowsTime() {
+    let anchors = [
+      ReadAlongMatcher.Placement(word: 10, time: 100),
+      ReadAlongMatcher.Placement(word: 20, time: 104),
+    ]
+    XCTAssertNil(ReadAlongViewModel.word(at: 99, anchors: anchors))
+    XCTAssertEqual(ReadAlongViewModel.word(at: 102, anchors: anchors), 15)
+    XCTAssertEqual(ReadAlongViewModel.word(at: 500, anchors: anchors), 20)
+  }
 }

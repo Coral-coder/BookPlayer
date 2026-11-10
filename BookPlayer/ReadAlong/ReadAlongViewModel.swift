@@ -12,15 +12,25 @@ final class ReadAlongViewModel: ObservableObject {
   enum Phase: Equatable {
     /// No ebook paired with this book yet
     case needsEbook
-    /// The ebook's text is shown, without timing
-    case textOnly
-    /// Listening to the audiobook, 0…1
-    case syncing(Double)
-    /// Words follow the narration
+    /// The ebook is shown and follows the narration
     case following
   }
 
+  /// What the live follower is doing, shown above the text
+  enum Status: Equatable {
+    case starting
+    /// Waiting for playback of this book
+    case waitingForPlayback
+    /// Transcribing what's about to play, nothing placed yet
+    case listening
+    case following
+    /// What's playing now isn't in the ebook
+    case notInEbook
+    case stopped
+  }
+
   @Published private(set) var phase: Phase = .needsEbook
+  @Published private(set) var status: Status = .starting
   @Published private(set) var paragraphs: [[String]] = []
   /// Index of the first word of each paragraph in the whole text
   @Published private(set) var paragraphStarts: [Int] = []
@@ -28,10 +38,6 @@ final class ReadAlongViewModel: ObservableObject {
   @Published private(set) var isPlaying = false
   @Published private(set) var shelf: [ImportedEbook] = []
   @Published var error: Error?
-  /// How the last sync went, shown under the text
-  @Published private(set) var syncSummary: String?
-  /// The timing is spread by word count, not matched to the narration
-  @Published private(set) var isEstimated = false
 
   let bookTitle: String
   let playerManager: PlayerManager
@@ -40,11 +46,19 @@ final class ReadAlongViewModel: ObservableObject {
   private let item: PlayableItem
   private var ebookTitle: String?
   private var ebookLanguage: String?
-  private var wordTimes: [TimeInterval] = []
-  private var syncTask: Task<Void, Never>?
+  private var matcher: ReadAlongMatcher?
+  private var wordCount = 0
+  /// Ebook words placed in the narration so far, by time
+  private var anchors = [ReadAlongMatcher.Placement]()
+  /// Stretches of the book (seconds) already transcribed, and whether each was found in the ebook
+  private var covered = [(start: TimeInterval, end: TimeInterval, found: Bool)]()
+  private var followTask: Task<Void, Never>?
   private var clock: AnyCancellable?
   private var disposeBag = Set<AnyCancellable>()
-  private var idleTimerWasDisabled = false
+
+  /// How much is transcribed at a time, and how far ahead of playback
+  private static let segmentLength: TimeInterval = 20
+  private static let lookAhead: TimeInterval = 25
 
   init(item: PlayableItem, playerManager: PlayerManager) {
     self.item = item
@@ -70,18 +84,6 @@ final class ReadAlongViewModel: ObservableObject {
     }
 
     show(text)
-    /// Timings saved before syncs recorded how they went could pile every word on one time (the
-    /// highlight sat on the last word): those need syncing again
-    if let timing = ReadAlongStore.timing(forBookId: bookId),
-       timing.wordTimes.count == text.wordCount,
-       timing.matchedWords != nil
-    {
-      wordTimes = timing.wordTimes
-      describe(timing)
-      startFollowing()
-    } else {
-      phase = .textOnly
-    }
   }
 
   private func show(_ text: ReadAlongText) {
@@ -95,6 +97,12 @@ final class ReadAlongViewModel: ObservableObject {
       count += paragraph.count
     }
     paragraphStarts = starts
+    wordCount = count
+    matcher = ReadAlongMatcher(bookWords: text.paragraphs.flatMap { $0 })
+    anchors = ReadAlongStore.anchors(forBookId: bookId)
+    covered = []
+    phase = .following
+    startFollowing()
   }
 
   func refreshShelf() {
@@ -115,9 +123,8 @@ final class ReadAlongViewModel: ObservableObject {
 
     do {
       let text = try ReadAlongStore.pair(ebookAt: url, withBookId: bookId, fromShelf: fromShelf)
-      wordTimes = []
+      stopFollowing()
       show(text)
-      phase = .textOnly
       refreshShelf()
     } catch {
       self.error = error
@@ -125,21 +132,22 @@ final class ReadAlongViewModel: ObservableObject {
   }
 
   func unpair() {
-    cancelSync()
     stopFollowing()
     ReadAlongStore.unpair(bookId: bookId, title: ebookTitle)
     paragraphs = []
     paragraphStarts = []
-    wordTimes = []
+    anchors = []
+    covered = []
+    matcher = nil
     currentWord = nil
     phase = .needsEbook
     refreshShelf()
   }
 
-  // MARK: - Syncing with the audio
+  // MARK: - Following the narration live
 
   /// The audio files that make up the book, each with where it starts in the book
-  private func audioParts() -> [ReadAlongAligner.AudioPart] {
+  private lazy var audioParts: [ReadAlongAligner.AudioPart] = {
     var parts = [ReadAlongAligner.AudioPart]()
     var seen = Set<URL>()
     for chapter in item.chapters.sorted(by: { $0.start < $1.start }) {
@@ -149,118 +157,166 @@ final class ReadAlongViewModel: ObservableObject {
       parts.append(.init(fileURL: url, bookOffset: chapter.start - chapter.chapterOffset))
     }
     return parts
+  }()
+
+  /// The file playing at `time`, and where it ends in the book
+  private func part(at time: TimeInterval) -> (part: ReadAlongAligner.AudioPart, end: TimeInterval)? {
+    guard let index = audioParts.lastIndex(where: { $0.bookOffset <= time + 0.01 }) else { return nil }
+    let end = index + 1 < audioParts.count ? audioParts[index + 1].bookOffset : item.duration
+    return (audioParts[index], end)
   }
-
-  func startSync() {
-    guard syncTask == nil else { return }
-
-    let parts = audioParts()
-    guard !parts.isEmpty, parts.allSatisfy({ FileManager.default.fileExists(atPath: $0.fileURL.path) }) else {
-      error = ReadAlongError.audioNotOnDevice
-      return
-    }
-
-    let bookWords = paragraphs.flatMap { $0 }
-    let duration = item.duration
-    let language = ebookLanguage
-    let bookId = bookId
-
-    stopFollowing()
-    phase = .syncing(0)
-    /// Transcribing a long book takes a while; the screen staying on keeps the app running
-    idleTimerWasDisabled = UIApplication.shared.isIdleTimerDisabled
-    UIApplication.shared.isIdleTimerDisabled = true
-
-    syncTask = Task { [weak self] in
-      do {
-        try await ReadAlongAligner.requestSpeechPermission()
-        let locale = try await ReadAlongAligner.transcriptionLocale(forLanguage: language)
-        let spoken = try await ReadAlongAligner.transcribe(
-          parts: parts,
-          locale: locale,
-          totalDuration: duration
-        ) { [weak self] progress in
-          guard let self, case .syncing = self.phase else { return }
-          self.phase = .syncing(progress)
-        }
-        try Task.checkCancellation()
-        guard !spoken.isEmpty else { throw ReadAlongError.nothingHeard }
-
-        let result = await Task.detached(priority: .userInitiated) {
-          ReadAlongAligner.align(bookWords: bookWords, spoken: spoken, duration: duration)
-        }.value
-        let timing = ReadAlongTiming(
-          wordTimes: result.times,
-          localeIdentifier: locale.identifier,
-          createdAt: Date(),
-          matchedWords: result.matchedWords,
-          heardWords: result.heardWords,
-          isEstimated: result.isEstimated
-        )
-        try ReadAlongStore.saveTiming(timing, forBookId: bookId)
-
-        self?.describe(timing)
-        self?.finishSync(times: result.times)
-      } catch is CancellationError {
-        self?.finishSync(times: nil)
-      } catch {
-        self?.finishSync(times: nil)
-        self?.error = error
-      }
-    }
-  }
-
-  private func describe(_ timing: ReadAlongTiming) {
-    let total = max(timing.wordTimes.count, 1)
-    let matched = timing.matchedWords ?? 0
-    let percent = Int((Double(matched) / Double(total) * 100).rounded())
-    isEstimated = timing.isEstimated ?? false
-    syncSummary = String(
-      format: (isEstimated ? "read_along_sync_estimated_summary" : "read_along_sync_summary").localized,
-      timing.heardWords ?? 0, matched, percent
-    )
-  }
-
-  private func finishSync(times: [TimeInterval]?) {
-    syncTask = nil
-    UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled
-    if let times {
-      wordTimes = times
-      startFollowing()
-    } else {
-      phase = paragraphs.isEmpty ? .needsEbook : .textOnly
-    }
-  }
-
-  func cancelSync() {
-    syncTask?.cancel()
-  }
-
-  // MARK: - Following the narration
 
   private func startFollowing() {
-    phase = .following
     clock?.cancel()
     clock = Timer.publish(every: 0.15, on: .main, in: .common)
       .autoconnect()
       .sink { [weak self] _ in self?.tick() }
-    tick()
+
+    followTask?.cancel()
+    followTask = Task { [weak self] in
+      await self?.followLoop()
+    }
   }
 
   private func stopFollowing() {
     clock?.cancel()
     clock = nil
+    followTask?.cancel()
+    followTask = nil
+    ReadAlongStore.saveAnchors(anchors, forBookId: bookId)
+  }
+
+  /// Transcribes what's about to play, a stretch at a time, and places it in the ebook
+  private func followLoop() async {
+    status = .starting
+    let locale: Locale
+    do {
+      try await ReadAlongAligner.requestSpeechPermission()
+      locale = try await ReadAlongAligner.transcriptionLocale(forLanguage: ebookLanguage)
+    } catch {
+      status = .stopped
+      self.error = error
+      return
+    }
+
+    while !Task.isCancelled {
+      guard
+        playerManager.currentItem?.id == bookId,
+        let now = playerManager.preciseBookTime()
+      else {
+        status = .waitingForPlayback
+        try? await Task.sleep(for: .milliseconds(500))
+        continue
+      }
+
+      let next = nextUncovered(from: now)
+      guard next - now < Self.lookAhead, next < item.duration - 0.5, let playing = part(at: next) else {
+        updateStatus(at: now)
+        try? await Task.sleep(for: .milliseconds(500))
+        continue
+      }
+      let audioPart = playing.part
+
+      let length = min(Self.segmentLength, playing.end - next)
+      guard length >= 0.5 else {
+        covered.append((start: next, end: playing.end, found: true))
+        continue
+      }
+
+      if anchors.isEmpty { status = .listening }
+
+      do {
+        let spoken = try await ReadAlongAligner.transcribeSegment(
+          of: audioPart,
+          from: next - audioPart.bookOffset,
+          length: length,
+          locale: locale
+        )
+        try Task.checkCancellation()
+
+        let near = nearWord(at: next)
+        guard let matcher else { return }
+        let placements = await Task.detached(priority: .userInitiated) {
+          matcher.place(spoken, near: near)
+        }.value
+
+        covered.append((start: next, end: next + length, found: !placements.isEmpty))
+        add(placements, from: next, to: next + length)
+        updateStatus(at: playerManager.preciseBookTime() ?? now)
+      } catch is CancellationError {
+        return
+      } catch {
+        status = .stopped
+        self.error = error
+        return
+      }
+    }
+  }
+
+  /// The first moment from `time` on that hasn't been transcribed
+  private func nextUncovered(from time: TimeInterval) -> TimeInterval {
+    var point = time
+    var moved = true
+    while moved {
+      moved = false
+      for range in covered where range.start <= point + 0.01 && range.end > point {
+        point = range.end
+        moved = true
+      }
+    }
+    return point
+  }
+
+  /// The ebook word the narration is likely at around `time`: the nearest one placed before it,
+  /// else a guess from how far into the book it is
+  private func nearWord(at time: TimeInterval) -> Int? {
+    if let anchor = anchors.last(where: { $0.time <= time }) {
+      return anchor.word
+    }
+    guard item.duration > 0, wordCount > 0 else { return nil }
+    return Int(Double(wordCount) * time / item.duration)
+  }
+
+  private func add(_ placements: [ReadAlongMatcher.Placement], from start: TimeInterval, to end: TimeInterval) {
+    guard !placements.isEmpty else { return }
+    anchors.removeAll { $0.time >= start && $0.time < end }
+    anchors.append(contentsOf: placements)
+    anchors.sort { $0.time < $1.time }
+  }
+
+  private func updateStatus(at time: TimeInterval) {
+    if let range = covered.last(where: { $0.start <= time && $0.end > time }), !range.found {
+      status = .notInEbook
+    } else if anchors.isEmpty {
+      status = .listening
+    } else {
+      status = .following
+    }
   }
 
   private func tick() {
     guard
-      !wordTimes.isEmpty,
       playerManager.currentItem?.id == bookId,
-      let time = playerManager.preciseBookTime()
+      let time = playerManager.preciseBookTime(),
+      let word = Self.word(at: time, anchors: anchors)
     else { return }
 
-    let index = Self.wordIndex(at: time, in: wordTimes)
-    if index != currentWord { currentWord = index }
+    if word != currentWord { currentWord = word }
+  }
+
+  /// The word being read at `time`: between two placed words close together, the place between
+  /// them by time; otherwise the last word placed before `time`
+  nonisolated static func word(at time: TimeInterval, anchors: [ReadAlongMatcher.Placement]) -> Int? {
+    guard let index = anchors.lastIndex(where: { $0.time <= time }) else { return nil }
+    let previous = anchors[index]
+    guard index + 1 < anchors.count else { return previous.word }
+
+    let next = anchors[index + 1]
+    guard next.time - previous.time < 6, next.word > previous.word, next.time > previous.time else {
+      return previous.word
+    }
+    let fraction = (time - previous.time) / (next.time - previous.time)
+    return previous.word + Int(Double(next.word - previous.word) * fraction)
   }
 
   /// The last word that starts at or before `time` (the first word before the narration reaches it)
@@ -280,17 +336,25 @@ final class ReadAlongViewModel: ObservableObject {
     return found
   }
 
-  /// Plays from a paragraph: from its first word with timing, or nothing without it
+  /// Plays from a paragraph: from where its words were heard, else an estimate from its place in
+  /// the book
   func jump(toParagraph index: Int) {
     guard
-      phase == .following,
       paragraphStarts.indices.contains(index),
       playerManager.currentItem?.id == bookId
     else { return }
 
     let word = paragraphStarts[index]
-    guard wordTimes.indices.contains(word) else { return }
-    playerManager.jumpTo(max(wordTimes[word] - 0.3, 0))
+    let paragraphEnd = index + 1 < paragraphStarts.count ? paragraphStarts[index + 1] : wordCount
+    let time: TimeInterval
+    if let heard = anchors.filter({ $0.word >= word && $0.word < paragraphEnd }).min(by: { $0.word < $1.word }) {
+      time = heard.time
+    } else if wordCount > 0 {
+      time = item.duration * Double(word) / Double(wordCount)
+    } else {
+      return
+    }
+    playerManager.jumpTo(max(time - 0.3, 0))
     currentWord = word
   }
 
@@ -315,16 +379,11 @@ final class ReadAlongViewModel: ObservableObject {
     playerManager.playPause()
   }
 
-  /// Closing the screen stops a sync in progress (it says to keep the screen open)
   func onDisappear() {
     stopFollowing()
-    if syncTask != nil {
-      cancelSync()
-      UIApplication.shared.isIdleTimerDisabled = idleTimerWasDisabled
-    }
   }
 
   func onAppear() {
-    if phase == .following, clock == nil { startFollowing() }
+    if phase == .following, followTask == nil { startFollowing() }
   }
 }

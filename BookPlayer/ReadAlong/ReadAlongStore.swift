@@ -153,6 +153,24 @@ enum ReadAlongStore {
     try JSONEncoder().encode(timing).write(to: url, options: .atomic)
   }
 
+  /// Words the live follower placed, kept so a book read along before highlights at once
+  static func anchors(forBookId bookId: String) -> [ReadAlongMatcher.Placement] {
+    let url = folderURL(forBookId: bookId).appendingPathComponent("anchors.json")
+    guard let data = try? Data(contentsOf: url),
+          let pairs = try? JSONDecoder().decode([[Double]].self, from: data)
+    else { return [] }
+    return pairs.compactMap { pair in
+      pair.count == 2 ? ReadAlongMatcher.Placement(word: Int(pair[0]), time: pair[1]) : nil
+    }
+  }
+
+  static func saveAnchors(_ anchors: [ReadAlongMatcher.Placement], forBookId bookId: String) {
+    let folder = folderURL(forBookId: bookId)
+    guard FileManager.default.fileExists(atPath: folder.path) else { return }
+    let pairs = anchors.map { [Double($0.word), $0.time] }
+    try? JSONEncoder().encode(pairs).write(to: folder.appendingPathComponent("anchors.json"), options: .atomic)
+  }
+
   /// Unpairs the ebook: it goes back on the shelf, and the timing is deleted
   static func unpair(bookId: String, title: String?) {
     let folder = folderURL(forBookId: bookId)

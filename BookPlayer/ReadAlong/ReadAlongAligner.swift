@@ -321,6 +321,62 @@ enum ReadAlongAligner {
     }
   }
 
+  /// The words in one stretch of one audio file, timed in the whole book. Read-along transcribes
+  /// what's about to play this way, a stretch at a time, instead of the whole book up front
+  static func transcribeSegment(
+    of part: AudioPart,
+    from fileStart: TimeInterval,
+    length: TimeInterval,
+    locale: Locale
+  ) async throws -> [SpokenWord] {
+    let segmentURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("read-along-segment-\(UUID().uuidString).caf")
+    defer { try? FileManager.default.removeItem(at: segmentURL) }
+
+    guard let segmentStart = try writeSegment(of: part.fileURL, from: fileStart, length: length, to: segmentURL) else {
+      return []
+    }
+
+    return try await transcribe(
+      part: AudioPart(fileURL: segmentURL, bookOffset: part.bookOffset + segmentStart),
+      locale: locale
+    ) { _ in }
+  }
+
+  /// Copies `length` seconds of the file from `fileStart` into an uncompressed file; returns where
+  /// the copy starts in the file, or nil past its end. The written file closes when this returns
+  private static func writeSegment(
+    of fileURL: URL,
+    from fileStart: TimeInterval,
+    length: TimeInterval,
+    to segmentURL: URL
+  ) throws -> TimeInterval? {
+    let (source, cleanup) = try openAudioFile(fileURL)
+    defer { cleanup() }
+
+    let format = source.processingFormat
+    let rate = format.sampleRate
+    let startFrame = AVAudioFramePosition(max(0, fileStart) * rate)
+    guard startFrame < source.length else { return nil }
+
+    let frames = AVAudioFrameCount(min(Double(source.length - startFrame), max(length, 0) * rate))
+    guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+
+    source.framePosition = startFrame
+    try source.read(into: buffer, frameCount: frames)
+
+    let output = try AVAudioFile(
+      forWriting: segmentURL,
+      settings: format.settings,
+      commonFormat: format.commonFormat,
+      interleaved: format.isInterleaved
+    )
+    try output.write(from: buffer)
+    output.close()
+
+    return Double(startFrame) / rate
+  }
+
   /// `AVAudioFile` goes by the extension, and doesn't take `.m4b`: open those through an `.m4a` link
   private static func openAudioFile(_ url: URL) throws -> (AVAudioFile, () -> Void) {
     guard FileManager.default.fileExists(atPath: url.path) else { throw ReadAlongError.audioNotOnDevice }
@@ -343,5 +399,88 @@ enum ReadAlongAligner {
       cleanup()
       throw ReadAlongError.audioUnreadable
     }
+  }
+}
+
+/// Finds where a stretch of narration is in the ebook, for live read-along. The ebook and the
+/// audiobook needn't match word for word: runs of three words in a row that appear in both
+/// vote for where the stretch is, then the words are matched one by one from there, and words
+/// the ebook doesn't have are skipped.
+struct ReadAlongMatcher: Sendable {
+  struct Placement: Equatable, Sendable {
+    let word: Int
+    let time: TimeInterval
+  }
+
+  let book: [String]
+  private let trigrams: [String: [Int]]
+
+  init(bookWords: [String]) {
+    let book = bookWords.map(ReadAlongAligner.normalize)
+    var trigrams = [String: [Int]]()
+    if book.count >= 3 {
+      for index in 0..<(book.count - 2) {
+        let a = book[index], b = book[index + 1], c = book[index + 2]
+        guard !a.isEmpty, !b.isEmpty, !c.isEmpty else { continue }
+        trigrams["\(a) \(b) \(c)", default: []].append(index)
+      }
+    }
+    self.book = book
+    self.trigrams = trigrams
+  }
+
+  /// The ebook words this narration covers, with when each is spoken. Empty when the stretch
+  /// isn't in the ebook (or too little of it was heard to tell). `near`: the word the reader is
+  /// at, preferred when several places match equally well
+  func place(_ spoken: [SpokenWord], near: Int?) -> [Placement] {
+    let heard = spoken
+      .map { (word: ReadAlongAligner.normalize($0.text), start: $0.start) }
+      .filter { !$0.word.isEmpty }
+    guard heard.count >= 3, book.count >= 3 else { return [] }
+
+    /// Each shared run of three words votes for an offset between the narration and the ebook
+    var votes = [Int: Int]()
+    for index in 0..<(heard.count - 2) {
+      let key = "\(heard[index].word) \(heard[index + 1].word) \(heard[index + 2].word)"
+      /// A phrase found all over the book ("and then he") says nothing about where this is
+      guard let positions = trigrams[key], positions.count <= 25 else { continue }
+      for position in positions {
+        votes[position - index, default: 0] += 1
+      }
+    }
+    guard !votes.isEmpty else { return [] }
+
+    /// Offsets a few words apart are the same place (words added or dropped by the narrator)
+    func score(_ offset: Int) -> Int {
+      (offset - 4...offset + 4).reduce(0) { $0 + (votes[$1] ?? 0) }
+    }
+    let ranked = votes.keys.map { (offset: $0, score: score($0)) }
+    let best = ranked.max { lhs, rhs in
+      if lhs.score != rhs.score { return lhs.score < rhs.score }
+      guard let near else { return lhs.offset > rhs.offset }
+      return abs(lhs.offset - near) > abs(rhs.offset - near)
+    }
+    guard let best, best.score >= 2 else { return [] }
+    /// Far from where the reader is, only a strong match counts (it could be a phrase that repeats)
+    if let near, abs(best.offset - near) > 3_000, best.score < 4 { return [] }
+
+    /// Match the words one by one from there
+    var placements = [Placement]()
+    var position = max(0, best.offset - 8)
+    for (index, heardWord) in heard.enumerated() {
+      guard position < book.count else { break }
+      let next = index + 1 < heard.count ? heard[index + 1].word : nil
+      let end = min(position + 25, book.count)
+      for candidate in position..<end where book[candidate] == heardWord.word {
+        let confirmed =
+          candidate == position || next == nil || candidate + 1 >= book.count || book[candidate + 1] == next
+        if confirmed {
+          placements.append(Placement(word: candidate, time: heardWord.start))
+          position = candidate + 1
+          break
+        }
+      }
+    }
+    return placements.count >= 3 ? placements : []
   }
 }

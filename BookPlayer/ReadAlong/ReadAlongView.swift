@@ -63,19 +63,9 @@ struct ReadAlongView: View {
     switch model.phase {
     case .needsEbook:
       chooseEbookView
-    case .textOnly, .syncing, .following:
+    case .following:
       VStack(spacing: 0) {
-        if model.phase != .following {
-          syncBanner
-        } else if let summary = model.syncSummary {
-          Text(summary)
-            .bpFont(.caption)
-            .foregroundStyle(model.isEstimated ? Color.orange : theme.secondaryColor)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-            .padding(.vertical, 6)
-            .background(theme.secondarySystemBackgroundColor)
-        }
+        statusBar
         textView
       }
     }
@@ -123,42 +113,34 @@ struct ReadAlongView: View {
     .onAppear { model.refreshShelf() }
   }
 
-  // MARK: - Syncing
+  // MARK: - Status
 
-  @ViewBuilder
-  private var syncBanner: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if case .syncing(let progress) = model.phase {
-        Text("read_along_syncing_title")
-          .bpFont(.headline)
-          .foregroundStyle(theme.primaryColor)
-        ProgressView(value: progress)
-          .tint(theme.linkColor)
-          .accessibilityLabel("read_along_syncing_title")
-          .accessibilityValue(Text(progress, format: .percent.precision(.fractionLength(0))))
-        Text("read_along_syncing_description")
-          .bpFont(.caption)
-          .foregroundStyle(theme.secondaryColor)
-        Button("cancel_button") { model.cancelSync() }
-          .bpFont(.body)
-          .foregroundStyle(theme.linkColor)
-      } else {
-        Text("read_along_sync_description")
-          .bpFont(.caption)
-          .foregroundStyle(theme.secondaryColor)
-        Button {
-          model.startSync()
-        } label: {
-          Label("read_along_sync_button", systemImage: "waveform.and.magnifyingglass")
-            .bpFont(.headline)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(theme.linkColor)
+  private var statusText: LocalizedStringKey {
+    switch model.status {
+    case .starting: return "read_along_status_starting"
+    case .waitingForPlayback: return "read_along_status_waiting"
+    case .listening: return "read_along_status_listening"
+    case .following: return "read_along_status_following"
+    case .notInEbook: return "read_along_status_not_found"
+    case .stopped: return "read_along_status_stopped"
+    }
+  }
+
+  private var statusBar: some View {
+    HStack(spacing: 8) {
+      if model.status == .listening || model.status == .starting {
+        ProgressView()
+          .controlSize(.small)
       }
+      Text(statusText)
+        .bpFont(.caption)
+        .foregroundStyle(model.status == .notInEbook ? Color.orange : theme.secondaryColor)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding()
+    .padding(.horizontal)
+    .padding(.vertical, 6)
     .background(theme.secondarySystemBackgroundColor)
+    .accessibilityElement(children: .combine)
   }
 
   // MARK: - The text
@@ -244,13 +226,6 @@ struct ReadAlongView: View {
             model.isPlaying ? "pause_title" : "play_title",
             systemImage: model.isPlaying ? "pause.fill" : "play.fill"
           )
-        }
-        if model.phase == .following {
-          Button {
-            model.startSync()
-          } label: {
-            Label("read_along_resync_button", systemImage: "arrow.triangle.2.circlepath")
-          }
         }
         if model.phase != .needsEbook {
           Button(role: .destructive) {

@@ -631,3 +631,9 @@
 "read_along_nothing_heard_error" = "Read Along couldn't hear any words in this audiobook. Check that the book's language matches the ebook, then sync again.";
 "read_along_sync_summary" = "Synced: heard %d words, matched %d of the ebook's (%d%%).";
 "read_along_sync_estimated_summary" = "Heard %d words but matched only %d of the ebook's (%d%%), so the highlight follows an estimate. Check that the ebook is the same edition as the audiobook, then Sync again from the menu.";
+"read_along_status_starting" = "Getting ready to listen…";
+"read_along_status_waiting" = "Play this book to read along.";
+"read_along_status_listening" = "Listening for where the narration is in the ebook…";
+"read_along_status_following" = "Following the narration. Tap a paragraph to play from it.";
+"read_along_status_not_found" = "This part of the audiobook isn't in the ebook. The highlight waits where it was.";
+"read_along_status_stopped" = "Read Along stopped. Close and reopen it to try again.";
