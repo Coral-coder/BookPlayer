@@ -16,6 +16,9 @@ struct ReadAlongView: View {
 
   @State private var showsFilePicker = false
   @State private var followsNarration = true
+  @State private var pageIndex = 0
+  @StateObject private var pager = ReadAlongPager()
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @State private var showsUnpairConfirmation = false
 
   init(initModel: @escaping () -> ReadAlongViewModel) {
@@ -66,7 +69,7 @@ struct ReadAlongView: View {
     case .following:
       VStack(spacing: 0) {
         statusBar
-        textView
+        pagedText
       }
     }
   }
@@ -159,6 +162,85 @@ struct ReadAlongView: View {
   }
 
   // MARK: - The text
+
+  // MARK: - Pages
+
+  /// The ebook laid out in pages the size of the screen. While following, the page turns when the
+  /// narration reaches the next one; swiping to another page stops following until Follow along
+  private var pagedText: some View {
+    GeometryReader { geometry in
+      let pageSize = CGSize(
+        width: max(geometry.size.width - 40, 100),
+        height: max(geometry.size.height - 56, 100)
+      )
+
+      ZStack(alignment: .bottom) {
+        if let layout = pager.layout, layout.pageCount > 0 {
+          TabView(selection: $pageIndex) {
+            ForEach(0..<layout.pageCount, id: \.self) { index in
+              ReadAlongPageView(container: layout.containers[index])
+                .frame(width: pageSize.width, height: pageSize.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 16)
+                .tag(index)
+            }
+          }
+          .tabViewStyle(.page(indexDisplayMode: .never))
+
+          HStack {
+            Text(String(format: "read_along_page_number".localized, pageIndex + 1, layout.pageCount))
+              .bpFont(.caption)
+              .foregroundStyle(theme.secondaryColor)
+            Spacer()
+            if !followsNarration {
+              Button {
+                followsNarration = true
+                turnToCurrentWord(animated: true)
+              } label: {
+                Label("read_along_follow_button", systemImage: "text.line.first.and.arrowtriangle.forward")
+                  .bpFont(.headline)
+              }
+              .buttonStyle(.borderedProminent)
+              .tint(theme.linkColor)
+            }
+          }
+          .padding(.horizontal, 20)
+          .padding(.bottom, 8)
+        } else {
+          ProgressView("read_along_preparing_pages")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      }
+      .task(id: PageKey(size: pageSize, paragraphs: model.paragraphs.count, typeSize: dynamicTypeSize)) {
+        await pager.paginate(
+          paragraphs: model.paragraphs,
+          pageSize: pageSize,
+          textColor: UIColor(theme.primaryColor),
+          highlightColor: UIColor(theme.linkColor).withAlphaComponent(0.3)
+        )
+        pager.highlight(word: model.currentWord)
+        turnToCurrentWord(animated: false)
+      }
+    }
+    .onChange(of: model.currentWord) { _, word in
+      pager.highlight(word: word)
+      if followsNarration { turnToCurrentWord(animated: true) }
+    }
+    .onChange(of: pageIndex) { _, page in
+      /// A swipe away from the word being read stops following; back onto its page resumes it
+      guard let word = model.currentWord, let wordPage = pager.page(ofWord: word) else { return }
+      followsNarration = page == wordPage
+    }
+  }
+
+  private func turnToCurrentWord(animated: Bool) {
+    guard let word = model.currentWord, let page = pager.page(ofWord: word), page != pageIndex else { return }
+    if animated {
+      withAnimation(.easeInOut(duration: 0.35)) { pageIndex = page }
+    } else {
+      pageIndex = page
+    }
+  }
 
   private var textView: some View {
     let currentParagraph = model.currentWord.flatMap(model.paragraphIndex(ofWord:))
@@ -307,4 +389,176 @@ private struct ReadAlongParagraphView: View, Equatable {
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.highlightedWord == rhs.highlightedWord && lhs.words == rhs.words
   }
+}
+
+private struct PageKey: Equatable {
+  let size: CGSize
+  let paragraphs: Int
+  let typeSize: DynamicTypeSize
+}
+
+/// The ebook's text in pages: one TextKit layout over the whole book, with a text container per
+/// page, so every page holds exactly what fits and a word's page is known from its characters.
+/// The word being read gets a temporary background, which doesn't change the layout.
+final class ReadAlongPageLayout: @unchecked Sendable {
+  let storage: NSTextStorage
+  let layoutManager: NSLayoutManager
+  let containers: [NSTextContainer]
+  /// Characters on each page
+  let pageRanges: [NSRange]
+  /// Characters of each word
+  let wordRanges: [NSRange]
+
+  var pageCount: Int { containers.count }
+
+  private init(
+    storage: NSTextStorage,
+    layoutManager: NSLayoutManager,
+    containers: [NSTextContainer],
+    pageRanges: [NSRange],
+    wordRanges: [NSRange]
+  ) {
+    self.storage = storage
+    self.layoutManager = layoutManager
+    self.containers = containers
+    self.pageRanges = pageRanges
+    self.wordRanges = wordRanges
+  }
+
+  static func make(paragraphs: [[String]], pageSize: CGSize, textColor: UIColor) -> ReadAlongPageLayout {
+    var text = ""
+    var wordRanges = [NSRange]()
+    var length = 0
+    for (paragraphIndex, paragraph) in paragraphs.enumerated() {
+      if paragraphIndex > 0 {
+        text += "\n"
+        length += 1
+      }
+      for (index, word) in paragraph.enumerated() {
+        if index > 0 {
+          text += " "
+          length += 1
+        }
+        let wordLength = (word as NSString).length
+        wordRanges.append(NSRange(location: length, length: wordLength))
+        text += word
+        length += wordLength
+      }
+    }
+
+    let style = NSMutableParagraphStyle()
+    style.lineSpacing = 4
+    style.paragraphSpacing = 12
+    let storage = NSTextStorage(string: text, attributes: [
+      .font: UIFont.preferredFont(forTextStyle: .title3),
+      .foregroundColor: textColor,
+      .paragraphStyle: style,
+    ])
+
+    let layoutManager = NSLayoutManager()
+    storage.addLayoutManager(layoutManager)
+
+    var containers = [NSTextContainer]()
+    var pageRanges = [NSRange]()
+    let glyphCount = layoutManager.numberOfGlyphs
+    var laidOut = 0
+    while laidOut < glyphCount || containers.isEmpty {
+      let container = NSTextContainer(size: pageSize)
+      container.lineFragmentPadding = 0
+      layoutManager.addTextContainer(container)
+      let glyphs = layoutManager.glyphRange(for: container)
+      /// A page that takes nothing (a line taller than the page) would loop forever
+      guard glyphs.length > 0 else {
+        layoutManager.removeTextContainer(at: layoutManager.textContainers.count - 1)
+        break
+      }
+      containers.append(container)
+      pageRanges.append(layoutManager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))
+      laidOut = NSMaxRange(glyphs)
+    }
+
+    return ReadAlongPageLayout(
+      storage: storage,
+      layoutManager: layoutManager,
+      containers: containers,
+      pageRanges: pageRanges,
+      wordRanges: wordRanges
+    )
+  }
+
+  func page(ofWord word: Int) -> Int? {
+    guard wordRanges.indices.contains(word) else { return nil }
+    let location = wordRanges[word].location
+    var low = 0
+    var high = pageRanges.count - 1
+    var found: Int?
+    while low <= high {
+      let middle = (low + high) / 2
+      if pageRanges[middle].location <= location {
+        found = middle
+        low = middle + 1
+      } else {
+        high = middle - 1
+      }
+    }
+    return found
+  }
+}
+
+@MainActor
+final class ReadAlongPager: ObservableObject {
+  @Published private(set) var layout: ReadAlongPageLayout?
+  private var highlighted: NSRange?
+  private var highlightColor = UIColor.systemYellow.withAlphaComponent(0.3)
+
+  /// Lays the book out off the main thread; a long book takes a moment
+  func paginate(paragraphs: [[String]], pageSize: CGSize, textColor: UIColor, highlightColor: UIColor) async {
+    guard !paragraphs.isEmpty else {
+      layout = nil
+      return
+    }
+    self.highlightColor = highlightColor
+    highlighted = nil
+    let built = await Task.detached(priority: .userInitiated) {
+      ReadAlongPageLayout.make(paragraphs: paragraphs, pageSize: pageSize, textColor: textColor)
+    }.value
+    guard !Task.isCancelled else { return }
+    layout = built
+  }
+
+  func page(ofWord word: Int) -> Int? {
+    layout?.page(ofWord: word)
+  }
+
+  func highlight(word: Int?) {
+    guard let layout else { return }
+    if let highlighted {
+      layout.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: highlighted)
+    }
+    guard let word, layout.wordRanges.indices.contains(word) else {
+      highlighted = nil
+      return
+    }
+    let range = layout.wordRanges[word]
+    layout.layoutManager.addTemporaryAttribute(.backgroundColor, value: highlightColor, forCharacterRange: range)
+    highlighted = range
+  }
+}
+
+/// One page: a text view showing one of the layout's text containers
+private struct ReadAlongPageView: UIViewRepresentable {
+  let container: NSTextContainer
+
+  func makeUIView(context: Context) -> UITextView {
+    let view = UITextView(frame: CGRect(origin: .zero, size: container.size), textContainer: container)
+    view.isEditable = false
+    view.isSelectable = false
+    view.isScrollEnabled = false
+    view.backgroundColor = .clear
+    view.textContainerInset = .zero
+    view.adjustsFontForContentSizeCategory = false
+    return view
+  }
+
+  func updateUIView(_ view: UITextView, context: Context) {}
 }

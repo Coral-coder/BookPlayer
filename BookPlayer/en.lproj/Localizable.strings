@@ -640,3 +640,5 @@
 "read_along_heard_found" = "Heard “…%@”, found in paragraph %d";
 "read_along_heard_not_found" = "Heard “…%@”, not found in the ebook";
 "read_along_start_over_button" = "Start over";
+"read_along_page_number" = "Page %d of %d";
+"read_along_preparing_pages" = "Laying out pages…";

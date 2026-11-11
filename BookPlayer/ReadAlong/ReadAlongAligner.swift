@@ -403,9 +403,11 @@ enum ReadAlongAligner {
 }
 
 /// Finds where a stretch of narration is in the ebook, for live read-along. The ebook and the
-/// audiobook needn't match word for word: runs of three words in a row that appear in both
-/// vote for where the stretch is, then the words are matched one by one from there, and words
-/// the ebook doesn't have are skipped.
+/// audiobook needn't match word for word. The anchors are four-word phrases the narration and the
+/// ebook share that occur only once in the part of the ebook searched; of those, only the longest
+/// run that's in the same order in both counts, so a phrase that happens to match elsewhere can't
+/// move the highlight. Words between two anchors are matched in order, and words the ebook doesn't
+/// have are skipped.
 struct ReadAlongMatcher: Sendable {
   struct Placement: Equatable, Sendable {
     let word: Int
@@ -413,88 +415,118 @@ struct ReadAlongMatcher: Sendable {
   }
 
   let book: [String]
-  private let trigrams: [String: [Int]]
+  /// Where each four-word phrase starts in the ebook
+  private let phrases: [String: [Int]]
+
+  static let phraseLength = 4
 
   init(bookWords: [String]) {
     let book = bookWords.map(ReadAlongAligner.normalize)
-    var trigrams = [String: [Int]]()
-    if book.count >= 3 {
-      for index in 0..<(book.count - 2) {
-        let a = book[index], b = book[index + 1], c = book[index + 2]
-        guard !a.isEmpty, !b.isEmpty, !c.isEmpty else { continue }
-        trigrams["\(a) \(b) \(c)", default: []].append(index)
-      }
+    var phrases = [String: [Int]]()
+    var index = 0
+    /// Phrases are built from the words that have letters or digits, so "—" between two words
+    /// doesn't break one
+    let indexed = book.indices.filter { !book[$0].isEmpty }
+    while index + Self.phraseLength <= indexed.count {
+      let key = indexed[index..<(index + Self.phraseLength)].map { book[$0] }.joined(separator: " ")
+      phrases[key, default: []].append(indexed[index])
+      index += 1
     }
     self.book = book
-    self.trigrams = trigrams
+    self.phrases = phrases
   }
 
   /// The ebook words this narration covers, with when each is spoken. Empty when the stretch
-  /// isn't in the ebook (or too little of it was heard to tell). `near`: the word the reader is
-  /// at, preferred when several places match equally well
+  /// isn't in the ebook, or too little of it was heard to be sure. `near`: the word the reader is
+  /// at; the stretch is looked for just around it first, then anywhere in the ebook
   func place(_ spoken: [SpokenWord], near: Int?) -> [Placement] {
     let heard = spoken
       .map { (word: ReadAlongAligner.normalize($0.text), start: $0.start) }
       .filter { !$0.word.isEmpty }
-    guard heard.count >= 3, book.count >= 3 else { return [] }
+    guard heard.count >= Self.phraseLength else { return [] }
 
-    /// Each shared run of three words votes for an offset between the narration and the ebook
-    var votes = [Int: Int]()
-    for index in 0..<(heard.count - 2) {
-      let key = "\(heard[index].word) \(heard[index + 1].word) \(heard[index + 2].word)"
-      /// A phrase found all over the book ("and then he") says nothing about where this is
-      guard let positions = trigrams[key], positions.count <= 25 else { continue }
-      for position in positions {
-        votes[position - index, default: 0] += 1
+    if let near {
+      let region = max(0, near - 1_500)..<min(book.count, near + 5_000)
+      let placements = place(heard, in: region, minimumAnchors: 2)
+      if !placements.isEmpty { return placements }
+    }
+    return place(heard, in: 0..<book.count, minimumAnchors: 3)
+  }
+
+  private func place(
+    _ heard: [(word: String, start: TimeInterval)],
+    in region: Range<Int>,
+    minimumAnchors: Int
+  ) -> [Placement] {
+    /// Anchors: a heard phrase found exactly once in the region
+    var anchors = [(heard: Int, book: Int)]()
+    for index in 0...(heard.count - Self.phraseLength) {
+      let key = heard[index..<(index + Self.phraseLength)].map(\.word).joined(separator: " ")
+      guard let positions = phrases[key] else { continue }
+      let inRegion = positions.filter { region.contains($0) }
+      guard inRegion.count == 1 else { continue }
+      anchors.append((index, inRegion[0]))
+    }
+    guard anchors.count >= minimumAnchors else { return [] }
+
+    let chain = Self.longestOrderedChain(anchors)
+    guard chain.count >= minimumAnchors else { return [] }
+
+    /// The anchors' words, then the words between two anchors, matched in order
+    var placed = [Int: TimeInterval]()
+    var bookWordsByHeard = [Int: Int]()
+    for anchor in chain {
+      var bookIndex = anchor.book
+      for offset in 0..<Self.phraseLength {
+        /// Skip ebook words without letters, as the phrase index does
+        while bookIndex < book.count, book[bookIndex].isEmpty { bookIndex += 1 }
+        guard bookIndex < book.count else { break }
+        bookWordsByHeard[anchor.heard + offset] = bookIndex
+        bookIndex += 1
       }
     }
-    guard !votes.isEmpty else { return [] }
-
-    /// Offsets a few words apart are the same place (words added or dropped by the narrator)
-    func score(_ offset: Int) -> Int {
-      (offset - 4...offset + 4).reduce(0) { $0 + (votes[$1] ?? 0) }
-    }
-    let ranked = votes.keys.map { (offset: $0, score: score($0)) }
-    let best = ranked.max { lhs, rhs in
-      if lhs.score != rhs.score { return lhs.score < rhs.score }
-      guard let near else { return lhs.offset > rhs.offset }
-      return abs(lhs.offset - near) > abs(rhs.offset - near)
-    }
-    /// Two or three shared phrases can be chance ("he said to her"); the real place shares many
-    guard let best, best.score >= Self.minimumScore else { return [] }
-
-    /// Another place that matches nearly as well makes this one a guess: unless it's the one next
-    /// to where the reader is, wait for a clearer stretch rather than highlight the wrong passage
-    let runnerUp = ranked
-      .filter { abs($0.offset - best.offset) > 50 }
-      .map(\.score)
-      .max() ?? 0
-    if runnerUp * 2 > best.score {
-      guard let near, abs(best.offset - near) <= 1_500 else { return [] }
-    }
-    /// Far from where the reader is, only a strong match counts (the listener may have skipped, or
-    /// a phrase repeats)
-    if let near, abs(best.offset - near) > 1_500, best.score < 2 * Self.minimumScore { return [] }
-
-    /// Match the words one by one from there
-    var placements = [Placement]()
-    var position = max(0, best.offset - 8)
-    for (index, heardWord) in heard.enumerated() {
-      guard position < book.count else { break }
-      let next = index + 1 < heard.count ? heard[index + 1].word : nil
-      let end = min(position + 25, book.count)
-      for candidate in position..<end where book[candidate] == heardWord.word {
-        let confirmed =
-          candidate == position || next == nil || candidate + 1 >= book.count || book[candidate + 1] == next
-        if confirmed {
-          placements.append(Placement(word: candidate, time: heardWord.start))
-          position = candidate + 1
-          break
+    for (previous, next) in zip(chain, chain.dropFirst()) {
+      var bookIndex = (bookWordsByHeard[previous.heard + Self.phraseLength - 1] ?? previous.book) + 1
+      let bookEnd = next.book
+      for heardIndex in (previous.heard + Self.phraseLength)..<max(previous.heard + Self.phraseLength, next.heard) {
+        guard bookIndex < bookEnd else { break }
+        if let found = (bookIndex..<min(bookEnd, bookIndex + 6)).first(where: { book[$0] == heard[heardIndex].word }) {
+          bookWordsByHeard[heardIndex] = found
+          bookIndex = found + 1
         }
       }
     }
-    return placements.count >= max(4, heard.count / 4) ? placements : []
+    for (heardIndex, bookIndex) in bookWordsByHeard where heardIndex < heard.count {
+      placed[bookIndex] = heard[heardIndex].start
+    }
+
+    return placed
+      .map { Placement(word: $0.key, time: $0.value) }
+      .sorted { $0.word < $1.word }
   }
 
-  static let minimumScore = 4
+  /// The longest run of anchors in the same order in the narration and the ebook, keeping roughly
+  /// the same distance between them (a narrator adds or drops a few words, not pages)
+  static func longestOrderedChain(_ anchors: [(heard: Int, book: Int)]) -> [(heard: Int, book: Int)] {
+    guard !anchors.isEmpty else { return [] }
+    var length = [Int](repeating: 1, count: anchors.count)
+    var previous = [Int](repeating: -1, count: anchors.count)
+    for index in anchors.indices {
+      for earlier in 0..<index {
+        let a = anchors[earlier], b = anchors[index]
+        guard b.heard > a.heard, b.book > a.book else { continue }
+        let drift = abs((b.book - b.heard) - (a.book - a.heard))
+        guard drift <= 40, length[earlier] + 1 > length[index] else { continue }
+        length[index] = length[earlier] + 1
+        previous[index] = earlier
+      }
+    }
+    var end = length.indices.max { length[$0] < length[$1] }!
+    var chain = [(heard: Int, book: Int)]()
+    while end >= 0 {
+      chain.append(anchors[end])
+      end = previous[end]
+    }
+    return chain.reversed()
+  }
 }
