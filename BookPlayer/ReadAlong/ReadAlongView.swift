@@ -399,7 +399,7 @@ private struct PageKey: Equatable {
 
 /// The ebook's text in pages: one TextKit layout over the whole book, with a text container per
 /// page, so every page holds exactly what fits and a word's page is known from its characters.
-/// The word being read gets a temporary background, which doesn't change the layout.
+/// The word being read gets a background colour, which doesn't change the layout.
 final class ReadAlongPageLayout: @unchecked Sendable {
   let storage: NSTextStorage
   let layoutManager: NSLayoutManager
@@ -532,15 +532,18 @@ final class ReadAlongPager: ObservableObject {
 
   func highlight(word: Int?) {
     guard let layout else { return }
+    /// Only the background changes (no character or metric), so the page breaks stay as they are
+    let storage = layout.storage
+    storage.beginEditing()
     if let highlighted {
-      layout.layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: highlighted)
+      storage.removeAttribute(.backgroundColor, range: highlighted)
     }
-    guard let word, layout.wordRanges.indices.contains(word) else {
-      highlighted = nil
-      return
+    var range: NSRange?
+    if let word, layout.wordRanges.indices.contains(word) {
+      range = layout.wordRanges[word]
+      storage.addAttribute(.backgroundColor, value: highlightColor, range: layout.wordRanges[word])
     }
-    let range = layout.wordRanges[word]
-    layout.layoutManager.addTemporaryAttribute(.backgroundColor, value: highlightColor, forCharacterRange: range)
+    storage.endEditing()
     highlighted = range
   }
 }
