@@ -42,6 +42,8 @@ final class ReadAlongViewModel: ObservableObject {
   /// wrong transcription
   @Published private(set) var lastHeard: String?
   @Published private(set) var lastFoundParagraph: Int?
+  /// The last stretch transcribed: words heard and how many were found in the ebook
+  @Published private(set) var lastStretch: (heard: Int, matched: Int)?
 
   let bookTitle: String
   let playerManager: PlayerManager
@@ -249,6 +251,7 @@ final class ReadAlongViewModel: ObservableObject {
         covered.append((start: next, end: next + length, found: !placements.isEmpty))
         add(placements, from: next, to: next + length)
         recentSpoken = Array((recentSpoken + spoken).suffix(400)).sorted { $0.start < $1.start }
+        lastStretch = (spoken.count, placements.count)
         updateStatus(at: playerManager.preciseBookTime() ?? now)
       } catch is CancellationError {
         return

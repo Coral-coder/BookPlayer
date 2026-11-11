@@ -642,3 +642,4 @@
 "read_along_start_over_button" = "Start over";
 "read_along_page_number" = "Page %d of %d";
 "read_along_preparing_pages" = "Laying out pages…";
+"read_along_stretch_stats" = "Last 20 seconds: heard %d words, found %d in the ebook";

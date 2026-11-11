@@ -453,22 +453,26 @@ struct ReadAlongMatcher: Sendable {
   }
 
   let book: [String]
-  /// Where each four-word phrase starts in the ebook
-  private let phrases: [String: [Int]]
+  /// Where each run of words starts in the ebook, by run length (4, then 3 as a fallback: a
+  /// transcription slip breaks fewer short runs)
+  private let phrases: [Int: [String: [Int]]]
 
-  static let phraseLength = 4
+  static let phraseLengths = [4, 3]
 
   init(bookWords: [String]) {
     let book = bookWords.map(ReadAlongAligner.normalize)
-    var phrases = [String: [Int]]()
-    var index = 0
-    /// Phrases are built from the words that have letters or digits, so "—" between two words
-    /// doesn't break one
+    /// Runs are built from the words with letters or digits, so "—" between two words doesn't break one
     let indexed = book.indices.filter { !book[$0].isEmpty }
-    while index + Self.phraseLength <= indexed.count {
-      let key = indexed[index..<(index + Self.phraseLength)].map { book[$0] }.joined(separator: " ")
-      phrases[key, default: []].append(indexed[index])
-      index += 1
+    var phrases = [Int: [String: [Int]]]()
+    for length in Self.phraseLengths {
+      var table = [String: [Int]]()
+      var index = 0
+      while index + length <= indexed.count {
+        let key = indexed[index..<(index + length)].map { book[$0] }.joined(separator: " ")
+        table[key, default: []].append(indexed[index])
+        index += 1
+      }
+      phrases[length] = table
     }
     self.book = book
     self.phrases = phrases
@@ -481,26 +485,37 @@ struct ReadAlongMatcher: Sendable {
     let heard = spoken
       .map { (word: ReadAlongAligner.normalize($0.text), start: $0.start) }
       .filter { !$0.word.isEmpty }
-    guard heard.count >= Self.phraseLength else { return [] }
+    guard heard.count >= 3 else { return [] }
 
+    var attempts = [(region: Range<Int>, length: Int, minimumAnchors: Int)]()
     if let near {
       let region = max(0, near - 1_500)..<min(book.count, near + 5_000)
-      let placements = place(heard, in: region, minimumAnchors: 2)
+      attempts.append((region, 4, 2))
+      attempts.append((region, 3, 3))
+    }
+    attempts.append((0..<book.count, 4, 3))
+    attempts.append((0..<book.count, 3, 4))
+
+    for attempt in attempts where heard.count >= attempt.length {
+      let placements = place(heard, in: attempt.region, length: attempt.length, minimumAnchors: attempt.minimumAnchors)
       if !placements.isEmpty { return placements }
     }
-    return place(heard, in: 0..<book.count, minimumAnchors: 3)
+    return []
   }
 
   private func place(
     _ heard: [(word: String, start: TimeInterval)],
     in region: Range<Int>,
+    length: Int,
     minimumAnchors: Int
   ) -> [Placement] {
-    /// Anchors: a heard phrase found exactly once in the region
+    guard let table = phrases[length], !region.isEmpty else { return [] }
+
+    /// Anchors: a heard run found exactly once in the region
     var anchors = [(heard: Int, book: Int)]()
-    for index in 0...(heard.count - Self.phraseLength) {
-      let key = heard[index..<(index + Self.phraseLength)].map(\.word).joined(separator: " ")
-      guard let positions = phrases[key] else { continue }
+    for index in 0...(heard.count - length) {
+      let key = heard[index..<(index + length)].map(\.word).joined(separator: " ")
+      guard let positions = table[key] else { continue }
       let inRegion = positions.filter { region.contains($0) }
       guard inRegion.count == 1 else { continue }
       anchors.append((index, inRegion[0]))
@@ -511,12 +526,10 @@ struct ReadAlongMatcher: Sendable {
     guard chain.count >= minimumAnchors else { return [] }
 
     /// The anchors' words, then the words between two anchors, matched in order
-    var placed = [Int: TimeInterval]()
     var bookWordsByHeard = [Int: Int]()
     for anchor in chain {
       var bookIndex = anchor.book
-      for offset in 0..<Self.phraseLength {
-        /// Skip ebook words without letters, as the phrase index does
+      for offset in 0..<length {
         while bookIndex < book.count, book[bookIndex].isEmpty { bookIndex += 1 }
         guard bookIndex < book.count else { break }
         bookWordsByHeard[anchor.heard + offset] = bookIndex
@@ -524,23 +537,45 @@ struct ReadAlongMatcher: Sendable {
       }
     }
     for (previous, next) in zip(chain, chain.dropFirst()) {
-      var bookIndex = (bookWordsByHeard[previous.heard + Self.phraseLength - 1] ?? previous.book) + 1
+      var bookIndex = (bookWordsByHeard[previous.heard + length - 1] ?? previous.book) + 1
       let bookEnd = next.book
-      for heardIndex in (previous.heard + Self.phraseLength)..<max(previous.heard + Self.phraseLength, next.heard) {
+      for heardIndex in (previous.heard + length)..<max(previous.heard + length, next.heard) {
         guard bookIndex < bookEnd else { break }
-        if let found = (bookIndex..<min(bookEnd, bookIndex + 6)).first(where: { book[$0] == heard[heardIndex].word }) {
+        if let found = (bookIndex..<min(bookEnd, bookIndex + 6)).first(where: {
+          Self.sameWord(book[$0], heard[heardIndex].word)
+        }) {
           bookWordsByHeard[heardIndex] = found
           bookIndex = found + 1
         }
       }
     }
+
+    var placed = [Int: TimeInterval]()
     for (heardIndex, bookIndex) in bookWordsByHeard where heardIndex < heard.count {
       placed[bookIndex] = heard[heardIndex].start
     }
-
     return placed
       .map { Placement(word: $0.key, time: $0.value) }
       .sorted { $0.word < $1.word }
+  }
+
+  /// The same word allowing a slip of the recognizer or a spelling difference ("colour"/"color",
+  /// "grey"/"gray"): equal, or one letter different in a word of five letters or more
+  static func sameWord(_ a: String, _ b: String) -> Bool {
+    if a == b { return true }
+    guard min(a.count, b.count) >= 5, abs(a.count - b.count) <= 1 else { return false }
+    let x = Array(a), y = Array(b)
+    var i = 0, j = 0, edits = 0
+    while i < x.count, j < y.count {
+      if x[i] == y[j] {
+        i += 1; j += 1
+        continue
+      }
+      edits += 1
+      if edits > 1 { return false }
+      if x.count > y.count { i += 1 } else if y.count > x.count { j += 1 } else { i += 1; j += 1 }
+    }
+    return edits + (x.count - i) + (y.count - j) <= 1
   }
 
   /// The longest run of anchors in the same order in the narration and the ebook, keeping roughly

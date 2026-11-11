@@ -140,6 +140,11 @@ struct ReadAlongView: View {
           .bpFont(.caption)
           .foregroundStyle(model.status == .notInEbook ? Color.orange : theme.secondaryColor)
       }
+      if let stretch = model.lastStretch {
+        Text(String(format: "read_along_stretch_stats".localized, stretch.heard, stretch.matched))
+          .bpFont(.caption)
+          .foregroundStyle(stretch.heard == 0 ? Color.orange : theme.secondaryColor)
+      }
       if let heard = model.lastHeard {
         Text(heardText(heard))
           .bpFont(.caption)
@@ -178,7 +183,11 @@ struct ReadAlongView: View {
         if let layout = pager.layout, layout.pageCount > 0 {
           TabView(selection: $pageIndex) {
             ForEach(0..<layout.pageCount, id: \.self) { index in
-              ReadAlongPageView(container: layout.containers[index])
+              ReadAlongPageView(
+                pieces: layout.pieces(onPage: index, highlighting: model.currentWord),
+                textColor: theme.primaryColor,
+                highlightColor: theme.linkColor.opacity(0.35)
+              )
                 .frame(width: pageSize.width, height: pageSize.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .padding(.top, 16)
@@ -218,12 +227,10 @@ struct ReadAlongView: View {
           textColor: UIColor(theme.primaryColor),
           highlightColor: UIColor(theme.linkColor).withAlphaComponent(0.3)
         )
-        pager.highlight(word: model.currentWord)
         turnToCurrentWord(animated: false)
       }
     }
     .onChange(of: model.currentWord) { _, word in
-      pager.highlight(word: word)
       if followsNarration { turnToCurrentWord(animated: true) }
     }
     .onChange(of: pageIndex) { _, page in
@@ -411,6 +418,46 @@ final class ReadAlongPageLayout: @unchecked Sendable {
 
   var pageCount: Int { containers.count }
 
+  /// The reader's font: pages are laid out and drawn with it
+  static var font: UIFont { UIFont.preferredFont(forTextStyle: .title3) }
+
+  /// A paragraph, or the part of one, on a page
+  struct Piece: Identifiable {
+    let id: Int
+    let text: String
+    /// The word being read, in this piece's characters
+    let highlight: NSRange?
+  }
+
+  func pieces(onPage page: Int, highlighting word: Int?) -> [Piece] {
+    guard pageRanges.indices.contains(page) else { return [] }
+    let string = storage.string as NSString
+    let pageRange = pageRanges[page]
+    let wordRange = word.flatMap { wordRanges.indices.contains($0) ? wordRanges[$0] : nil }
+
+    var pieces = [Piece]()
+    var start = pageRange.location
+    let end = NSMaxRange(pageRange)
+    while start < end {
+      let rest = NSRange(location: start, length: end - start)
+      let newline = string.range(of: "\n", options: [], range: rest)
+      let pieceEnd = newline.location == NSNotFound ? end : newline.location
+      let pieceRange = NSRange(location: start, length: pieceEnd - start)
+      if pieceRange.length > 0 {
+        var highlight: NSRange?
+        if let wordRange {
+          let overlap = NSIntersectionRange(wordRange, pieceRange)
+          if overlap.length > 0 {
+            highlight = NSRange(location: overlap.location - start, length: overlap.length)
+          }
+        }
+        pieces.append(Piece(id: start, text: string.substring(with: pieceRange), highlight: highlight))
+      }
+      start = pieceEnd + 1
+    }
+    return pieces
+  }
+
   private init(
     storage: NSTextStorage,
     layoutManager: NSLayoutManager,
@@ -450,7 +497,7 @@ final class ReadAlongPageLayout: @unchecked Sendable {
     style.lineSpacing = 4
     style.paragraphSpacing = 12
     let storage = NSTextStorage(string: text, attributes: [
-      .font: UIFont.preferredFont(forTextStyle: .title3),
+      .font: ReadAlongPageLayout.font,
       .foregroundColor: textColor,
       .paragraphStyle: style,
     ])
@@ -463,7 +510,8 @@ final class ReadAlongPageLayout: @unchecked Sendable {
     let glyphCount = layoutManager.numberOfGlyphs
     var laidOut = 0
     while laidOut < glyphCount || containers.isEmpty {
-      let container = NSTextContainer(size: pageSize)
+      /// A little shorter than the page: SwiftUI draws each page, and may wrap a line differently
+      let container = NSTextContainer(size: CGSize(width: pageSize.width, height: pageSize.height * 0.92))
       container.lineFragmentPadding = 0
       layoutManager.addTextContainer(container)
       let glyphs = layoutManager.glyphRange(for: container)
@@ -548,20 +596,39 @@ final class ReadAlongPager: ObservableObject {
   }
 }
 
-/// One page: a text view showing one of the layout's text containers
-private struct ReadAlongPageView: UIViewRepresentable {
-  let container: NSTextContainer
+/// One page, drawn by SwiftUI from the characters TextKit put on it: a paragraph or part of one
+/// per piece, the word being read with a background
+private struct ReadAlongPageView: View {
+  let pieces: [ReadAlongPageLayout.Piece]
+  let textColor: Color
+  let highlightColor: Color
 
-  func makeUIView(context: Context) -> UITextView {
-    let view = UITextView(frame: CGRect(origin: .zero, size: container.size), textContainer: container)
-    view.isEditable = false
-    view.isSelectable = false
-    view.isScrollEnabled = false
-    view.backgroundColor = .clear
-    view.textContainerInset = .zero
-    view.adjustsFontForContentSizeCategory = false
-    return view
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      ForEach(pieces) { piece in
+        Text(attributed(piece))
+          .font(Font(ReadAlongPageLayout.font))
+          .lineSpacing(4)
+          .foregroundStyle(textColor)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .clipped()
+    .accessibilityElement(children: .combine)
   }
 
-  func updateUIView(_ view: UITextView, context: Context) {}
+  private func attributed(_ piece: ReadAlongPageLayout.Piece) -> AttributedString {
+    var text = AttributedString(piece.text)
+    if let highlight = piece.highlight,
+       let range = Range(highlight, in: piece.text),
+       let lower = AttributedString.Index(range.lowerBound, within: text),
+       let upper = AttributedString.Index(range.upperBound, within: text)
+    {
+      text[lower..<upper].backgroundColor = highlightColor
+      text[lower..<upper].underlineStyle = .single
+    }
+    return text
+  }
 }
