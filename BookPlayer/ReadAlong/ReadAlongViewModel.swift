@@ -38,6 +38,10 @@ final class ReadAlongViewModel: ObservableObject {
   @Published private(set) var isPlaying = false
   @Published private(set) var shelf: [ImportedEbook] = []
   @Published var error: Error?
+  /// The last words heard, and where they were found, so a wrong highlight can be told from a
+  /// wrong transcription
+  @Published private(set) var lastHeard: String?
+  @Published private(set) var lastFoundParagraph: Int?
 
   let bookTitle: String
   let playerManager: PlayerManager
@@ -242,6 +246,8 @@ final class ReadAlongViewModel: ObservableObject {
 
         covered.append((start: next, end: next + length, found: !placements.isEmpty))
         add(placements, from: next, to: next + length)
+        lastHeard = spoken.suffix(10).map(\.text).joined(separator: " ")
+        lastFoundParagraph = placements.last.flatMap { paragraphIndex(ofWord: $0.word) }
         updateStatus(at: playerManager.preciseBookTime() ?? now)
       } catch is CancellationError {
         return
@@ -270,11 +276,9 @@ final class ReadAlongViewModel: ObservableObject {
   /// The ebook word the narration is likely at around `time`: the nearest one placed before it,
   /// else a guess from how far into the book it is
   private func nearWord(at time: TimeInterval) -> Int? {
-    if let anchor = anchors.last(where: { $0.time <= time }) {
-      return anchor.word
-    }
-    guard item.duration > 0, wordCount > 0 else { return nil }
-    return Int(Double(wordCount) * time / item.duration)
+    /// No guess from how far into the book it is: front matter and a different edition make that
+    /// point anywhere, and a wrong hint would pull a match toward it
+    anchors.last(where: { $0.time <= time && time - $0.time < 120 })?.word
   }
 
   private func add(_ placements: [ReadAlongMatcher.Placement], from start: TimeInterval, to end: TimeInterval) {
@@ -347,13 +351,11 @@ final class ReadAlongViewModel: ObservableObject {
     let word = paragraphStarts[index]
     let paragraphEnd = index + 1 < paragraphStarts.count ? paragraphStarts[index + 1] : wordCount
     let time: TimeInterval
-    if let heard = anchors.filter({ $0.word >= word && $0.word < paragraphEnd }).min(by: { $0.word < $1.word }) {
-      time = heard.time
-    } else if wordCount > 0 {
-      time = item.duration * Double(word) / Double(wordCount)
-    } else {
+    /// Only to a paragraph already heard: an estimate from its place in the ebook lands anywhere
+    guard let heard = anchors.filter({ $0.word >= word && $0.word < paragraphEnd }).min(by: { $0.word < $1.word }) else {
       return
     }
+    time = heard.time
     playerManager.jumpTo(max(time - 0.3, 0))
     currentWord = word
   }
@@ -373,6 +375,18 @@ final class ReadAlongViewModel: ObservableObject {
       }
     }
     return found
+  }
+
+  /// Forgets every placement and listens again from where playback is
+  func startOver() {
+    stopFollowing()
+    anchors = []
+    covered = []
+    currentWord = nil
+    lastHeard = nil
+    lastFoundParagraph = nil
+    ReadAlongStore.saveAnchors([], forBookId: bookId)
+    startFollowing()
   }
 
   func playPause() {

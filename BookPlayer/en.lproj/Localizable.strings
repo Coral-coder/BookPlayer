@@ -637,3 +637,6 @@
 "read_along_status_following" = "Following the narration. Tap a paragraph to play from it.";
 "read_along_status_not_found" = "This part of the audiobook isn't in the ebook. The highlight waits where it was.";
 "read_along_status_stopped" = "Read Along stopped. Close and reopen it to try again.";
+"read_along_heard_found" = "Heard “…%@”, found in paragraph %d";
+"read_along_heard_not_found" = "Heard “…%@”, not found in the ebook";
+"read_along_start_over_button" = "Start over";

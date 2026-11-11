@@ -127,20 +127,35 @@ struct ReadAlongView: View {
   }
 
   private var statusBar: some View {
-    HStack(spacing: 8) {
-      if model.status == .listening || model.status == .starting {
-        ProgressView()
-          .controlSize(.small)
+    VStack(alignment: .leading, spacing: 2) {
+      HStack(spacing: 8) {
+        if model.status == .listening || model.status == .starting {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Text(statusText)
+          .bpFont(.caption)
+          .foregroundStyle(model.status == .notInEbook ? Color.orange : theme.secondaryColor)
       }
-      Text(statusText)
-        .bpFont(.caption)
-        .foregroundStyle(model.status == .notInEbook ? Color.orange : theme.secondaryColor)
+      if let heard = model.lastHeard {
+        Text(heardText(heard))
+          .bpFont(.caption)
+          .foregroundStyle(theme.secondaryColor)
+          .lineLimit(2)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal)
     .padding(.vertical, 6)
     .background(theme.secondarySystemBackgroundColor)
     .accessibilityElement(children: .combine)
+  }
+
+  private func heardText(_ heard: String) -> String {
+    if let paragraph = model.lastFoundParagraph {
+      return String(format: "read_along_heard_found".localized, heard, paragraph + 1)
+    }
+    return String(format: "read_along_heard_not_found".localized, heard)
   }
 
   // MARK: - The text
@@ -226,6 +241,13 @@ struct ReadAlongView: View {
             model.isPlaying ? "pause_title" : "play_title",
             systemImage: model.isPlaying ? "pause.fill" : "play.fill"
           )
+        }
+        if model.phase == .following {
+          Button {
+            model.startOver()
+          } label: {
+            Label("read_along_start_over_button", systemImage: "arrow.counterclockwise")
+          }
         }
         if model.phase != .needsEbook {
           Button(role: .destructive) {

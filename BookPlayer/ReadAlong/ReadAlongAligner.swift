@@ -460,9 +460,21 @@ struct ReadAlongMatcher: Sendable {
       guard let near else { return lhs.offset > rhs.offset }
       return abs(lhs.offset - near) > abs(rhs.offset - near)
     }
-    guard let best, best.score >= 2 else { return [] }
-    /// Far from where the reader is, only a strong match counts (it could be a phrase that repeats)
-    if let near, abs(best.offset - near) > 3_000, best.score < 4 { return [] }
+    /// Two or three shared phrases can be chance ("he said to her"); the real place shares many
+    guard let best, best.score >= Self.minimumScore else { return [] }
+
+    /// Another place that matches nearly as well makes this one a guess: unless it's the one next
+    /// to where the reader is, wait for a clearer stretch rather than highlight the wrong passage
+    let runnerUp = ranked
+      .filter { abs($0.offset - best.offset) > 50 }
+      .map(\.score)
+      .max() ?? 0
+    if runnerUp * 2 > best.score {
+      guard let near, abs(best.offset - near) <= 1_500 else { return [] }
+    }
+    /// Far from where the reader is, only a strong match counts (the listener may have skipped, or
+    /// a phrase repeats)
+    if let near, abs(best.offset - near) > 1_500, best.score < 2 * Self.minimumScore { return [] }
 
     /// Match the words one by one from there
     var placements = [Placement]()
@@ -481,6 +493,8 @@ struct ReadAlongMatcher: Sendable {
         }
       }
     }
-    return placements.count >= 3 ? placements : []
+    return placements.count >= max(4, heard.count / 4) ? placements : []
   }
+
+  static let minimumScore = 4
 }
