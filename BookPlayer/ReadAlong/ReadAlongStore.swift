@@ -155,7 +155,7 @@ enum ReadAlongStore {
 
   /// Words the live follower placed, kept so a book read along before highlights at once
   static func anchors(forBookId bookId: String) -> [ReadAlongMatcher.Placement] {
-    let url = folderURL(forBookId: bookId).appendingPathComponent("anchors-v2.json")
+    let url = folderURL(forBookId: bookId).appendingPathComponent("anchors-v3.json")
     guard let data = try? Data(contentsOf: url),
           let pairs = try? JSONDecoder().decode([[Double]].self, from: data)
     else { return [] }
@@ -168,7 +168,7 @@ enum ReadAlongStore {
     let folder = folderURL(forBookId: bookId)
     guard FileManager.default.fileExists(atPath: folder.path) else { return }
     let pairs = anchors.map { [Double($0.word), $0.time] }
-    try? JSONEncoder().encode(pairs).write(to: folder.appendingPathComponent("anchors-v2.json"), options: .atomic)
+    try? JSONEncoder().encode(pairs).write(to: folder.appendingPathComponent("anchors-v3.json"), options: .atomic)
   }
 
   /// Unpairs the ebook: it goes back on the shelf, and the timing is deleted

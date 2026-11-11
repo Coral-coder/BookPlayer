@@ -333,7 +333,7 @@ enum ReadAlongAligner {
       .appendingPathComponent("read-along-segment-\(UUID().uuidString).caf")
     defer { try? FileManager.default.removeItem(at: segmentURL) }
 
-    guard let segmentStart = try writeSegment(of: part.fileURL, from: fileStart, length: length, to: segmentURL) else {
+    guard let segmentStart = try await writeSegment(of: part.fileURL, from: fileStart, length: length, to: segmentURL) else {
       return []
     }
 
@@ -343,38 +343,76 @@ enum ReadAlongAligner {
     ) { _ in }
   }
 
-  /// Copies `length` seconds of the file from `fileStart` into an uncompressed file; returns where
-  /// the copy starts in the file, or nil past its end. The written file closes when this returns
+  /// Copies `length` seconds of the file from `fileStart` into an uncompressed 16 kHz mono file;
+  /// returns where the copy really starts in the file, or nil past its end.
+  ///
+  /// Read with `AVAssetReader` on an asset opened with precise timing, as the player opens it, so
+  /// both use one timeline: decoding a compressed file by frame count (`AVAudioFile`) can land
+  /// seconds away from the player's clock, and the highlight then follows the wrong moment
   private static func writeSegment(
     of fileURL: URL,
     from fileStart: TimeInterval,
     length: TimeInterval,
     to segmentURL: URL
-  ) throws -> TimeInterval? {
-    let (source, cleanup) = try openAudioFile(fileURL)
-    defer { cleanup() }
+  ) async throws -> TimeInterval? {
+    guard FileManager.default.fileExists(atPath: fileURL.path) else { throw ReadAlongError.audioNotOnDevice }
 
-    let format = source.processingFormat
-    let rate = format.sampleRate
-    let startFrame = AVAudioFramePosition(max(0, fileStart) * rate)
-    guard startFrame < source.length else { return nil }
+    let asset = AVURLAsset(url: fileURL, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+    guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
+      throw ReadAlongError.audioUnreadable
+    }
+    let duration = try await asset.load(.duration).seconds
+    guard fileStart < duration else { return nil }
 
-    let frames = AVAudioFrameCount(min(Double(source.length - startFrame), max(length, 0) * rate))
-    guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+    guard let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)
+    else { throw ReadAlongError.audioUnreadable }
 
-    source.framePosition = startFrame
-    try source.read(into: buffer, frameCount: frames)
+    let reader = try AVAssetReader(asset: asset)
+    reader.timeRange = CMTimeRange(
+      start: CMTime(seconds: max(0, fileStart), preferredTimescale: 44_100),
+      duration: CMTime(seconds: max(length, 0.1), preferredTimescale: 44_100)
+    )
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: 16_000,
+      AVNumberOfChannelsKey: 1,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ])
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else { throw ReadAlongError.audioUnreadable }
+    reader.add(output)
+    guard reader.startReading() else { throw reader.error ?? ReadAlongError.audioUnreadable }
 
-    let output = try AVAudioFile(
+    let file = try AVAudioFile(
       forWriting: segmentURL,
       settings: format.settings,
-      commonFormat: format.commonFormat,
-      interleaved: format.isInterleaved
+      commonFormat: .pcmFormatInt16,
+      interleaved: true
     )
-    try output.write(from: buffer)
-    output.close()
+    var firstTime: TimeInterval?
+    while let sampleBuffer = output.copyNextSampleBuffer() {
+      let frames = CMSampleBufferGetNumSamples(sampleBuffer)
+      guard frames > 0, let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames))
+      else { continue }
+      let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+        sampleBuffer, at: 0, frameCount: Int32(frames), into: buffer.mutableAudioBufferList
+      )
+      guard status == noErr else { continue }
+      buffer.frameLength = AVAudioFrameCount(frames)
+      if firstTime == nil {
+        /// Where the decoded audio really starts, on the player's timeline
+        let start = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        firstTime = start.isFinite ? start : fileStart
+      }
+      try file.write(from: buffer)
+    }
+    file.close()
 
-    return Double(startFrame) / rate
+    guard reader.status != .failed else { throw reader.error ?? ReadAlongError.audioUnreadable }
+    return firstTime
   }
 
   /// `AVAudioFile` goes by the extension, and doesn't take `.m4b`: open those through an `.m4a` link

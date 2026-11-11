@@ -56,6 +56,8 @@ final class ReadAlongViewModel: ObservableObject {
   private var anchors = [ReadAlongMatcher.Placement]()
   /// Stretches of the book (seconds) already transcribed, and whether each was found in the ebook
   private var covered = [(start: TimeInterval, end: TimeInterval, found: Bool)]()
+  /// What the recent stretches said, to show the words playing now (transcription runs ahead)
+  private var recentSpoken = [SpokenWord]()
   private var followTask: Task<Void, Never>?
   private var clock: AnyCancellable?
   private var disposeBag = Set<AnyCancellable>()
@@ -246,8 +248,7 @@ final class ReadAlongViewModel: ObservableObject {
 
         covered.append((start: next, end: next + length, found: !placements.isEmpty))
         add(placements, from: next, to: next + length)
-        lastHeard = spoken.suffix(10).map(\.text).joined(separator: " ")
-        lastFoundParagraph = placements.last.flatMap { paragraphIndex(ofWord: $0.word) }
+        recentSpoken = Array((recentSpoken + spoken).suffix(400)).sorted { $0.start < $1.start }
         updateStatus(at: playerManager.preciseBookTime() ?? now)
       } catch is CancellationError {
         return
@@ -301,11 +302,21 @@ final class ReadAlongViewModel: ObservableObject {
   private func tick() {
     guard
       playerManager.currentItem?.id == bookId,
-      let time = playerManager.preciseBookTime(),
-      let word = Self.word(at: time, anchors: anchors)
+      let time = playerManager.preciseBookTime()
     else { return }
+    defer { updateHeard(at: time) }
+    guard let word = Self.word(at: time, anchors: anchors) else { return }
 
     if word != currentWord { currentWord = word }
+  }
+
+  /// The words playing now, from the transcription, and the paragraph the highlight is in
+  private func updateHeard(at time: TimeInterval) {
+    let playing = recentSpoken.filter { $0.start <= time && $0.start > time - 6 }.suffix(8)
+    let text = playing.isEmpty ? nil : playing.map(\.text).joined(separator: " ")
+    if text != lastHeard { lastHeard = text }
+    let paragraph = currentWord.flatMap { paragraphIndex(ofWord: $0) }
+    if paragraph != lastFoundParagraph { lastFoundParagraph = paragraph }
   }
 
   /// The word being read at `time`: between two placed words close together, the place between
@@ -385,6 +396,7 @@ final class ReadAlongViewModel: ObservableObject {
     currentWord = nil
     lastHeard = nil
     lastFoundParagraph = nil
+    recentSpoken = []
     ReadAlongStore.saveAnchors([], forBookId: bookId)
     startFollowing()
   }
