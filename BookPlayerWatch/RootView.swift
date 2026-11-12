@@ -16,7 +16,7 @@ struct RootView: View {
 
   var body: some View {
     VStack {
-      if coreServices.hasSyncEnabled {
+      if coreServices.hasSyncEnabled || coreServices.hasLocalBooks {
         RemoteItemListView(model: .init(coreServices: coreServices))
       } else if contextManager.items.isEmpty && contextManager.isConnecting {
         ProgressView()
@@ -25,11 +25,14 @@ struct RootView: View {
       }
     }
     .toolbar {
-      ToolbarItem(placement: .cancellationAction) {
-        Button {
-          showSettings = true
-        } label: {
-          Image(systemName: "gear")
+      /// Settings holds only the BookPlayer account sign-in, which a personal build doesn't have
+      if !AppEnvironment.isPersonalBuild {
+        ToolbarItem(placement: .cancellationAction) {
+          Button {
+            showSettings = true
+          } label: {
+            Image(systemName: "gear")
+          }
         }
       }
     }

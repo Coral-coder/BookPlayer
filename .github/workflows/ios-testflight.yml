@@ -1,0 +1,385 @@
+# Archives the iOS app and (optionally) uploads it to TestFlight. Installed by Dev_deploy_setup
+# (Actions → Set up app repo there); it's the MagicMaker / ePTT workflow made generic. It is driven
+# by markers in the subject (first line) of the commit message of a push to main:
+#
+#   no marker   nothing happens
+#   *b          archive and sign only, as a check; nothing is uploaded
+#   *u          archive and upload to TestFlight, same version, build number + 1
+#
+# To release a new version, tag the *u commit: `git tag v1.4.0` and push the tag with the
+# branch (`git push origin main v1.4.0`). That uploads 1.4.0 as build 1. Running the workflow
+# by hand (Actions → iOS TestFlight → Run workflow) always uploads; its version and build fields
+# are optional overrides.
+#
+# The project is found on its own: the first *.xcodeproj within three folders of the repo root
+# (or an XcodeGen project.yml, which is generated first). The scheme defaults to the project's
+# name and the bundle ID to the scheme's PRODUCT_BUNDLE_IDENTIFIER. Override any of them with
+# repository variables (Settings → Secrets and variables → Actions → Variables):
+#   IOS_DIR, XCODE_PROJECT, XCODE_SCHEME, BUNDLE_ID, APP_NAME (App Store name), APP_SKU
+# App-specific preparation (writing a config plist from a secret, toolchain workarounds) goes
+# in an executable .github/scripts/pre-build.sh: it runs in the project folder after Xcode is
+# selected and before the project is generated, with every repository secret as JSON in
+# $SECRETS_JSON (read one with: jq -r '.NAME // empty' <<<"$SECRETS_JSON").
+# A repo with no iOS project yet skips the build with a notice.
+#
+# New apps: the bundle ID is registered with the API key if it isn't yet. App Store Connect's
+# API can't create the app record itself, so when there is none the workflow runs
+# `fastlane produce` if the APPLE_ID and FASTLANE_SESSION secrets are set (FASTLANE_SESSION comes
+# from `fastlane spaceauth -u you@example.com` and lasts about a month); otherwise it stops and
+# says to create the app in App Store Connect (My Apps → + → New App) with that bundle ID.
+#
+# The current version and build are MARKETING_VERSION and CURRENT_PROJECT_VERSION in the
+# project; after an upload the workflow commits the numbers it used back to the branch (that
+# commit doesn't trigger workflows). The build number is also checked against App Store Connect,
+# so a build uploaded by hand from Xcode never collides.
+#
+# Signing is automatic ("cloud signing") with the App Store Connect API key.
+# Secrets (copied in by Dev_deploy_setup's Set up app repo workflow):
+#   APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8   required
+#   DEV_CERT_P12, DEV_CERT_PASSWORD                        optional, reuse one dev certificate
+#   APPLE_ID, FASTLANE_SESSION                             optional, create missing apps
+name: iOS TestFlight
+
+# Driftwood (this BookPlayer fork): runs on pushes to develop, the default branch here, on the
+# Xcode 27 runner BookPlayer's CI uses, with the Driftwood bundle ID and App Store name as
+# defaults, and with every target forced to automatic signing (the project's targets are manual).
+on:
+  push:
+    # The second branch is this setup's pull request, so a *b commit there can check the build
+    branches: [develop, claude/ecstatic-darwin-pi8l3p]
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version (leave empty to keep the current one)"
+        required: false
+      build:
+        description: "Build number (leave empty for the next one)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  # Reads the *b / *u markers and finds the project; cheap, so it runs on Linux for every push.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      upload: ${{ steps.plan.outputs.upload }}
+      dir: ${{ steps.plan.outputs.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: plan
+        env:
+          IOS_DIR: ${{ vars.IOS_DIR }}
+        run: |
+          # Subject line only: a body that merely mentions the markers (a squash-merged PR
+          # description, say) must not start an upload.
+          message=$(git log -1 --format=%s)
+          build=false; upload=false
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            build=true; upload=true
+          else
+            case "$message" in *'*u'*) build=true; upload=true ;; *'*b'*) build=true ;; esac
+          fi
+          # A tagged commit is handled by the tag's run, not the branch's, so it isn't built twice.
+          if [ "$GITHUB_REF_TYPE" = "branch" ] && [ "$build" = true ]; then
+            git fetch --quiet --tags origin
+            if git tag --points-at HEAD | grep -qE '^v[0-9]+(\.[0-9]+){1,2}$'; then
+              echo "Tagged commit; the tag's run handles it."; build=false; upload=false
+            fi
+          fi
+          dir="$IOS_DIR"
+          if [ -z "$dir" ]; then
+            found=$(find . -maxdepth 3 -name '*.xcodeproj' -not -path '*/Pods/*' | sort | head -1)
+            [ -z "$found" ] && found=$(find . -maxdepth 3 -name project.yml -not -path '*/Pods/*' | sort | head -1)
+            [ -n "$found" ] && dir=$(dirname "$found")
+          fi
+          if [ "$build" = true ] && [ -z "$dir" ]; then
+            echo "::notice::No iOS project in this repo yet (no *.xcodeproj or project.yml); nothing to build."
+            build=false; upload=false
+          fi
+          echo "build=$build upload=$upload dir=$dir"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "upload=$upload" >> "$GITHUB_OUTPUT"
+          echo "dir=${dir:-.}" >> "$GITHUB_OUTPUT"
+
+  upload:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    # BookPlayer needs Xcode 27.1 (see .github/workflows/ci.yml); pre-build.sh pins it.
+    runs-on: xcode-27
+    timeout-minutes: 90
+    concurrency:
+      group: ios-testflight-upload
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: ${{ needs.plan.outputs.dir }}
+    env:
+      UPLOAD: ${{ needs.plan.outputs.upload }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC: ${{ github.workspace }}/.github/scripts/asc.py
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then echo "::error::Missing secret $name (run Set up app repo in Dev_deploy_setup for this repo)"; exit 1; fi
+          done
+
+      - name: Install the App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          printf '%s\n' "$ASC_KEY_P8" > "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+          chmod 600 "$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/asc/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+
+      - name: Select Xcode 26 or later
+        run: |
+          xcode=$(ls -d /Applications/Xcode_2[6-9]*.app /Applications/Xcode_[3-9][0-9]*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$xcode" ]; then
+            echo "::error::No Xcode 26+ on this runner:"; ls -d /Applications/Xcode*.app; exit 1
+          fi
+          sudo xcode-select -s "$xcode/Contents/Developer"
+          xcodebuild -version
+
+      - name: App-specific pre-build steps
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: |
+          hook="$GITHUB_WORKSPACE/.github/scripts/pre-build.sh"
+          if [ -f "$hook" ]; then bash "$hook"; else echo "No .github/scripts/pre-build.sh"; fi
+
+      - name: Find the project, scheme and bundle ID
+        env:
+          XCODE_PROJECT: ${{ vars.XCODE_PROJECT }}
+          XCODE_SCHEME: ${{ vars.XCODE_SCHEME }}
+          BUNDLE_ID: ${{ vars.BUNDLE_ID || 'com.lightwave.driftwood' }}
+          APP_NAME: ${{ vars.APP_NAME || 'Driftwood' }}
+          APP_SKU: ${{ vars.APP_SKU || 'driftwood' }}
+        run: |
+          project="$XCODE_PROJECT"
+          if [ -z "$project" ]; then
+            project=$(ls -d *.xcodeproj 2>/dev/null | head -1)
+            if [ -z "$project" ] && [ -f project.yml ]; then
+              brew install --quiet xcodegen
+              xcodegen generate
+              project=$(ls -d *.xcodeproj | head -1)
+            fi
+          fi
+          if [ -z "$project" ] || [ ! -d "$project" ]; then echo "::error::No Xcode project in $(pwd)"; exit 1; fi
+          schemes=$(xcodebuild -project "$project" -list -json | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)["project"].get("schemes", [])))')
+          scheme="$XCODE_SCHEME"
+          if [ -z "$scheme" ]; then
+            scheme="${project%.xcodeproj}"
+            if ! printf '%s\n' "$schemes" | grep -qxF "$scheme"; then scheme=$(printf '%s\n' "$schemes" | head -1); fi
+          fi
+          if [ -z "$scheme" ]; then echo "::error::No scheme in $project; set the XCODE_SCHEME variable"; exit 1; fi
+          bundle="$BUNDLE_ID"
+          if [ -z "$bundle" ]; then
+            # The scheme also builds its extensions and libraries; take the app target's ID.
+            bundle=$(xcodebuild -project "$project" -scheme "$scheme" -configuration Release -showBuildSettings -json 2>/dev/null \
+              | python3 -c 'import json,sys
+          targets = json.load(sys.stdin)
+          apps = [t for t in targets if t["buildSettings"].get("WRAPPER_EXTENSION") == "app"]
+          pick = next((t for t in apps if t.get("target") == sys.argv[1]), apps[0] if apps else None)
+          print(pick["buildSettings"].get("PRODUCT_BUNDLE_IDENTIFIER", "") if pick else "")' "$scheme")
+          fi
+          if [ -z "$bundle" ]; then echo "::error::Couldn't read the bundle ID; set the BUNDLE_ID variable"; exit 1; fi
+          name="${APP_NAME:-$scheme}"
+          sku="${APP_SKU:-$(echo "$bundle" | tr '.' '-')}"
+          echo "Project $project, scheme $scheme, bundle ID $bundle, app name $name"
+          {
+            echo "PROJECT=$project"; echo "SCHEME=$scheme"; echo "BUNDLE_ID=$bundle"
+            echo "APP_NAME=$name"; echo "APP_SKU=$sku"
+          } >> "$GITHUB_ENV"
+
+      - name: Decide version and build
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build }}
+        run: |
+          pbxproj="$PROJECT/project.pbxproj"
+          current_version=$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = "?([^";]+)"?;/\1/p' "$pbxproj" | sort -V | tail -1)
+          current_build=$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = "?([0-9]+)"?;/\1/p' "$pbxproj" | sort -n | tail -1)
+          current_version="${current_version:-1.0}"; current_build="${current_build:-0}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="${INPUT_VERSION:-$current_version}"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::Version must look like 1, 1.2 or 1.2.3 (got '$version')"; exit 1
+          fi
+          if [ -n "$INPUT_BUILD" ]; then
+            build="$INPUT_BUILD"
+          else
+            if [ "$version" = "$current_version" ]; then
+              build=$((current_build + 1))   # same version: next build
+            else
+              build=1                        # new version: builds start over
+            fi
+            # Never reuse a number App Store Connect already has (e.g. a build uploaded from Xcode).
+            if asc_next=$(python3 "$ASC" next-build --bundle-id "$BUNDLE_ID" --version "$version"); then
+              if [ "$asc_next" -gt "$build" ]; then build="$asc_next"; fi
+            else
+              echo "::warning::Couldn't ask App Store Connect for its latest build; using $build"
+            fi
+          fi
+          if ! [[ "$build" =~ ^[0-9]+$ ]]; then echo "::error::Build must be a number (got '$build')"; exit 1; fi
+          echo "Current $current_version ($current_build) → building $version ($build)"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$build" >> "$GITHUB_ENV"
+
+      # Registers the bundle ID if needed and makes sure App Store Connect has an app to upload to.
+      - name: Make sure the app exists
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          FASTLANE_SESSION: ${{ secrets.FASTLANE_SESSION }}
+        run: |
+          status=0
+          python3 "$ASC" ensure-app --bundle-id "$BUNDLE_ID" --name "$APP_NAME" || status=$?
+          if [ "$status" -eq 0 ]; then exit 0; fi
+          if [ "$status" -ne 3 ]; then
+            if [ "$UPLOAD" = true ]; then exit "$status"; fi
+            echo "::warning::Couldn't check the app in App Store Connect"; exit 0
+          fi
+          if [ -n "$APPLE_ID" ] && [ -n "$FASTLANE_SESSION" ]; then
+            echo "Creating \"$APP_NAME\" ($BUNDLE_ID) in App Store Connect"
+            command -v fastlane > /dev/null || brew install --quiet fastlane
+            fastlane produce --username "$APPLE_ID" --app_identifier "$BUNDLE_ID" --app_name "$APP_NAME" \
+              --sku "$APP_SKU" --app_version "$VERSION" --skip_devcenter
+            for attempt in 1 2 3 4 5 6; do
+              if python3 "$ASC" ensure-app --bundle-id "$BUNDLE_ID" --name "$APP_NAME"; then
+                echo "### App Store Connect: created $APP_NAME ($BUNDLE_ID)" >> "$GITHUB_STEP_SUMMARY"; exit 0
+              fi
+              sleep 20
+            done
+            echo "::error::fastlane produce ran but App Store Connect still shows no app for $BUNDLE_ID"; exit 1
+          fi
+          msg="App Store Connect has no app for $BUNDLE_ID. Create it (App Store Connect → Apps → + → New App, bundle ID $BUNDLE_ID, SKU $APP_SKU) or add APPLE_ID and FASTLANE_SESSION secrets so this workflow can, then re-run."
+          echo "### $msg" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$UPLOAD" = true ]; then echo "::error::$msg"; exit 1; fi
+          echo "::warning::$msg"
+
+      # With DEV_CERT_P12 / DEV_CERT_PASSWORD set, that one certificate is loaded into a
+      # throwaway keychain and reused every run. Without them, Xcode creates a development
+      # certificate on each fresh runner. Nothing is revoked here.
+      - name: Signing certificate
+        env:
+          DEV_CERT_P12: ${{ secrets.DEV_CERT_P12 }}
+          DEV_CERT_PASSWORD: ${{ secrets.DEV_CERT_PASSWORD }}
+        run: |
+          if [ -z "$DEV_CERT_P12" ]; then
+            echo "::warning::No DEV_CERT_P12 secret: Xcode will create a new development certificate this run"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          printf '%s' "$DEV_CERT_P12" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$DEV_CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/signing.p12"
+
+      # ENABLE_DEBUG_DYLIB / ENABLE_PREVIEWS off: a device build that links the debug dylib
+      # crashes at launch.
+      - name: Archive
+        run: |
+          mkdir -p build
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "build/$SCHEME.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Development" PROVISIONING_PROFILE_SPECIFIER= \
+            ENABLE_DEBUG_DYLIB=NO ENABLE_PREVIEWS=NO \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            archive > build/xcodebuild.log 2>&1 || {
+              # Surface compiler errors as annotations (readable without downloading the log).
+              grep -E ': error: ' build/xcodebuild.log | sort -u | head -30 | while IFS= read -r line; do
+                echo "::error::$(echo "$line" | sed -E "s#^$GITHUB_WORKSPACE/##")"
+              done
+              tail -80 build/xcodebuild.log
+              exit 1
+            }
+          tail -60 build/xcodebuild.log
+
+      - name: Upload to TestFlight
+        if: env.UPLOAD == 'true'
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "build/$SCHEME.xcarchive" \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/upload \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "Uploaded $VERSION ($BUILD_NUMBER). It appears in TestFlight after Apple finishes processing (usually 5 to 20 minutes)."
+          echo "### TestFlight: uploaded $APP_NAME $VERSION ($BUILD_NUMBER)" >> "$GITHUB_STEP_SUMMARY"
+
+      # TestFlight crash reports need the symbols, and the archive is gone with the runner.
+      - name: Keep dSYMs
+        if: env.UPLOAD == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-dSYMs-${{ env.VERSION }}-${{ env.BUILD_NUMBER }}
+          path: ${{ needs.plan.outputs.dir }}/build/${{ env.SCHEME }}.xcarchive/dSYMs
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Record the version and build
+        if: env.UPLOAD == 'true'
+        run: |
+          # On the branch that was built; a tag records on main.
+          branch="$GITHUB_REF_NAME"
+          if [ "$GITHUB_REF_TYPE" != "branch" ]; then branch=develop; fi
+          git fetch origin "$branch"
+          git checkout -B "$branch" "origin/$branch"
+          if [ -z "$(git ls-files -- "$PROJECT/project.pbxproj" project.yml)" ]; then echo "No tracked project file to record the version in"; exit 0; fi
+          if [ -f "$PROJECT/project.pbxproj" ]; then
+            sed -i '' -E "s/^([[:space:]]*MARKETING_VERSION = )[^;]*;/\1$VERSION;/" "$PROJECT/project.pbxproj"
+            sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION = )[^;]*;/\1$BUILD_NUMBER;/" "$PROJECT/project.pbxproj"
+          fi
+          if [ -f project.yml ]; then
+            sed -i '' -E "s/^([[:space:]]*MARKETING_VERSION: ).*/\1\"$VERSION\"/" project.yml
+            sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION: ).*/\1\"$BUILD_NUMBER\"/" project.yml
+          fi
+          git ls-files -z -- "$PROJECT/project.pbxproj" project.yml | xargs -0 git add --
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "TestFlight: $VERSION ($BUILD_NUMBER)"
+          git push origin "$branch"
+
+      - name: Remove keys
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/asc" "$RUNNER_TEMP/signing.p12"
+          if [ -f "$RUNNER_TEMP/signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true; fi

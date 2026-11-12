@@ -42,8 +42,11 @@ struct MainView: View {
         .toolbarBackground(theme.systemBackgroundColor, for: .tabBar)
         .toolbar(listState.isEditing ? .hidden : .visible, for: .tabBar)
       }
-      Tab("profile_title", systemImage: "person.crop.circle") {
-        ProfileView()
+      /// Sign-in, cloud sync and plans: none of it applies to a personal build
+      if !AppEnvironment.isPersonalBuild {
+        Tab("profile_title", systemImage: "person.crop.circle") {
+          ProfileView()
+        }
       }
       Tab("settings_title", systemImage: "gearshape") {
         SettingsView()

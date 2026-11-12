@@ -35,6 +35,11 @@ public struct WatchAuthResponse {
 }
 
 public class WatchConnectivityService: NSObject, WCSessionDelegate {
+  /// Books sent from the iPhone, already moved into the Processed folder. Called on the main
+  /// thread; files that arrive before it's set wait in `pendingBookFiles`
+  private var didReceiveBookFile: (@MainActor (URL) -> Void)?
+  /// Main thread only
+  private var pendingBookFiles = [URL]()
   public var didReceiveData: ((Data) -> Void)?
   public var didReceiveContext: (([String: Any]) -> Void)?
   public var didActivateSession: (() -> Void)?
@@ -178,4 +183,69 @@ extension WatchConnectivityService {
       })
     }
   }
+}
+
+// MARK: - Books sent from the iPhone
+
+extension WatchConnectivityService {
+  /// Set once the library exists; hands over every file that arrived before it
+  @MainActor
+  public func setBookFileHandler(_ handler: @escaping @MainActor (URL) -> Void) {
+    didReceiveBookFile = handler
+    let pending = pendingBookFiles
+    pendingBookFiles.removeAll()
+    pending.forEach(handler)
+  }
+
+  public func session(_ session: WCSession, didReceive file: WCSessionFile) {
+    guard file.metadata?["kind"] as? String == "bookFile" else { return }
+
+    /// WatchConnectivity deletes the file once this method returns, so it's moved here, now
+    let fileName = (file.metadata?["fileName"] as? String) ?? file.fileURL.lastPathComponent
+    let destination: URL
+    do {
+      destination = try Self.moveIntoProcessedFolder(file.fileURL, named: fileName)
+    } catch {
+      return
+    }
+
+    DispatchQueue.main.async {
+      MainActor.assumeIsolated {
+        if let handler = self.didReceiveBookFile {
+          handler(destination)
+        } else {
+          self.pendingBookFiles.append(destination)
+        }
+      }
+    }
+  }
+
+  /// Moves the file to the Processed folder's root under `name`, adding " 2", " 3"… before
+  /// the extension when a file there already has it
+  static func moveIntoProcessedFolder(_ source: URL, named name: String) throws -> URL {
+    let fileManager = FileManager.default
+    let folder = DataManager.getProcessedFolderURL()
+    try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+
+    /// A name from the iPhone is a plain file name; keep only its last component all the same
+    let safeName = (name as NSString).lastPathComponent
+    let baseName = (safeName as NSString).deletingPathExtension
+    let pathExtension = (safeName as NSString).pathExtension
+
+    var destination = folder.appendingPathComponent(safeName)
+    var counter = 2
+    while fileManager.fileExists(atPath: destination.path) {
+      let candidate = pathExtension.isEmpty ? "\(baseName) \(counter)" : "\(baseName) \(counter).\(pathExtension)"
+      destination = folder.appendingPathComponent(candidate)
+      counter += 1
+    }
+
+    try fileManager.moveItem(at: source, to: destination)
+    return destination
+  }
+}
+
+extension Notification.Name {
+  /// The watch's own library changed outside a sync: a book arrived from the iPhone, or one was removed
+  static let watchLocalLibraryChanged = Notification.Name("watchLocalLibraryChanged")
 }

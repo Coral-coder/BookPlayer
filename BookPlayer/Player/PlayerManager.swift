@@ -1125,6 +1125,17 @@ extension PlayerManager {
     self.audioPlayer.seek(to: CMTime(seconds: newTime, preferredTimescale: CMTimeScale(NSEC_PER_SEC)))
   }
 
+  /// Where playback is in the whole book, read from the player's clock right now. Read-along uses
+  /// it to follow words; `currentItem.currentTime` only moves once a second. Read-only
+  func preciseBookTime() -> TimeInterval? {
+    guard let currentItem, let chapter = currentItem.currentChapter else { return nil }
+
+    let fileTime = CMTimeGetSeconds(audioPlayer.currentTime())
+    guard fileTime.isFinite, fileTime >= 0 else { return currentItem.currentTime }
+
+    return fileTime + chapter.start - chapter.chapterOffset
+  }
+
   func jumpTo(_ time: Double, recordBookmark: Bool = true) {
     guard let currentItem = self.currentItem else { return }
 
