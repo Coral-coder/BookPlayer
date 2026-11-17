@@ -138,3 +138,17 @@ logo, and a build that looks like another developer's app can be rejected.
 - Hardcover sign-in won't work unless you register your own Hardcover OAuth app and put its client ID in
   `BP_HARDCOVER_CLIENT_ID`. Everything else (playback, sleep timer, bookmarks, Jellyfin and
   AudiobookShelf, iCloud backup of files) works without any keys.
+
+## CarPlay
+
+The app already has a full CarPlay interface (library, recent books, chapters, playback). Apple
+only lets an app on a CarPlay screen when its team holds the **CarPlay Audio** entitlement, which
+Apple grants on request:
+
+1. Request it at <https://developer.apple.com/contact/carplay/> (sign in, choose **Audio**,
+   describe Driftwood as an audiobook player). Apple answers by email, usually within days.
+2. Once granted: developer.apple.com → Identifiers → `com.lightwave.driftwood` → **Additional
+   Capabilities** → tick **CarPlay Audio** → Save.
+3. Build again (a `*u` commit, or Actions → iOS TestFlight → Run workflow). The build sees
+   CarPlay Audio in the app's profile and signs with `BookPlayer-PersonalCarPlay.entitlements`;
+   until then it says "CarPlay is off" in the run and builds without it.

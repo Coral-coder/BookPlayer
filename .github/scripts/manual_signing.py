@@ -169,7 +169,13 @@ def main() -> int:
         resource_id = ensure_bundle_id(identifier, name, token)
         ensure_app_groups(resource_id, identifier, token)
         profile_name, content = create_profile(identifier, name, resource_id, certificate_id, token)
-        groups = profile_entitlements(content).get("com.apple.security.application-groups", [])
+        entitlements = profile_entitlements(content)
+        groups = entitlements.get("com.apple.security.application-groups", [])
+        # CarPlay Audio is granted to the team by Apple on request; once it's on the App ID, the
+        # profile carries it and the build turns CarPlay on (archive-and-upload.sh reads the marker)
+        if suffix == "" and entitlements.get("com.apple.developer.carplay-audio") and os.environ.get("CARPLAY_MARKER"):
+            open(os.environ["CARPLAY_MARKER"], "w").close()
+            log("CarPlay Audio is in the app's profile: building with CarPlay")
         if group not in groups:
             missing_group.append(identifier)
         profiles[identifier] = profile_name

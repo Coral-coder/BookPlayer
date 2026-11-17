@@ -47,7 +47,16 @@ if [ -z "$identity" ]; then echo "::error::No Apple Distribution identity in BUI
 echo "Signing as: $identity"
 
 # 2. App IDs and App Store profiles, through the API
+export CARPLAY_MARKER="$work/carplay"
+rm -f "$CARPLAY_MARKER"
 profiles=$(python3 "$scripts/manual_signing.py" --bundle-id "$bundle_id" --certificate-serial "$serial")
+# With Apple's CarPlay Audio entitlement on the App ID, sign with it; without, CarPlay stays off
+entitlements=BookPlayer-Personal
+if [ -f "$CARPLAY_MARKER" ]; then
+  entitlements=BookPlayer-PersonalCarPlay
+else
+  echo "::notice::CarPlay is off: the App ID doesn't have Apple's CarPlay Audio entitlement yet (see PERSONAL_BUILD.md)"
+fi
 profile() { jq -r --arg id "$1" '.[$id]' <<<"$profiles"; }
 
 # The xcconfig pre-build.sh wrote, now with the profiles and the App Group-only entitlements
@@ -55,7 +64,7 @@ for config in Debug Release; do
   file="BuildConfiguration/$config.xcconfig"
   sed -i '' -E '/^BP_PROVISIONING_|^BP_ENTITLEMENTS/d' "$file"
   cat >> "$file" <<XCCONFIG
-BP_ENTITLEMENTS = BookPlayer-Personal
+BP_ENTITLEMENTS = $entitlements
 BP_PROVISIONING_MAIN = $(profile "$bundle_id")
 BP_PROVISIONING_WATCH = $(profile "$bundle_id.watchkitapp")
 BP_PROVISIONING_WATCH_WIDGETS = $(profile "$bundle_id.watchkitapp.widgets")
