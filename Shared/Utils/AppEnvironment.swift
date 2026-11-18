@@ -9,6 +9,10 @@
 import Foundation
 
 public enum AppEnvironment {
+  /// A personal build: no subscriptions or tips, every free-tier perk unlocked, and no
+  /// BookPlayer account (its cloud needs the BookPlayer backend, which this build doesn't use)
+  public static let isPersonalBuild = true
+
   /// Checks if the app is running in a TestFlight environment
   public static var isTestFlight: Bool {
     #if DEBUG
@@ -25,7 +29,7 @@ public enum AppEnvironment {
   
   /// Checks if in-app purchases should be enabled
   public static var isPurchaseEnabled: Bool {
-    return !isTestFlight
+    return !isTestFlight && !isPersonalBuild
   }
   
   /// Returns the current environment description for debugging

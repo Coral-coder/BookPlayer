@@ -98,6 +98,19 @@ struct RemoteItemListView: View {
           .padding(.top, model.folderRelativePath == nil ? 10 : 0)
       }
 
+      if model.folderRelativePath == nil, !model.coreServices.syncService.isActive {
+        Section {
+          NavigationLink {
+            ItemListView()
+              .navigationTitle("recent_title")
+              .navigationBarTitleDisplayMode(.inline)
+              .environmentObject(ExtensionDelegate.contextManager)
+          } label: {
+            Label("watch_control_iphone_title", systemImage: "iphone")
+          }
+        }
+      }
+
       /// Create padding at the bottom
       Section {
         Spacer().frame(height: 10)

@@ -134,6 +134,8 @@ class MainCoordinator: NSObject {
   }
 
   func showSecondOnboarding() {
+    /// The second onboarding sells plans and tips, which a personal build doesn't have
+    guard !AppEnvironment.isPersonalBuild else { return }
     guard let anonymousId = accountService.getAnonymousId() else { return }
 
     let coordinator = SecondOnboardingCoordinator(

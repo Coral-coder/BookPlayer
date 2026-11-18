@@ -276,3 +276,59 @@ extension PhoneWatchConnectivityService {
     replyHandler(applicationContextData)
   }
 }
+
+// MARK: - Send a book's file to the watch
+
+public enum WatchBookTransferError: LocalizedError {
+  case watchUnavailable
+  case notABook
+  case fileMissing
+
+  public var errorDescription: String? {
+    switch self {
+    case .watchUnavailable:
+      return "watch_transfer_unavailable_error".localized
+    case .notABook:
+      return "watch_transfer_not_book_error".localized
+    case .fileMissing:
+      return "watch_transfer_file_missing_error".localized
+    }
+  }
+}
+
+extension PhoneWatchConnectivityService {
+  /// The `metadata` key the watch reads to tell a book's file from other transfers
+  public static let bookFileMetadataKind = "bookFile"
+
+  /// Whether a book can be sent right now: a paired watch with the app installed
+  public var canSendBooksToWatch: Bool {
+    validSession?.activationState == .activated
+  }
+
+  /// Queues the book's file for the watch. WatchConnectivity carries it in the background,
+  /// even when the watch app isn't running, and the watch adds it to its own library
+  public func sendBookToWatch(_ item: SimpleLibraryItem) throws {
+    guard item.type == .book else { throw WatchBookTransferError.notABook }
+
+    guard
+      let session = validSession,
+      session.activationState == .activated
+    else {
+      throw WatchBookTransferError.watchUnavailable
+    }
+
+    let fileURL = item.fileURL
+    guard FileManager.default.fileExists(atPath: fileURL.path) else {
+      throw WatchBookTransferError.fileMissing
+    }
+
+    session.transferFile(
+      fileURL,
+      metadata: [
+        "kind": Self.bookFileMetadataKind,
+        "fileName": fileURL.lastPathComponent,
+        "title": item.title,
+      ]
+    )
+  }
+}

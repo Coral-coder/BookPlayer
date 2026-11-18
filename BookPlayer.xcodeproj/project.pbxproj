@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DB4ED004CEE8A5D8A2956474 /* ReadAlongTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB81FBC548596F1F96511B38 /* ReadAlongTests.swift */; };
+		DA4027B6098CA6D5D6072447 /* EpubTextExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DADB1987438B5C01EFAE4DBC /* EpubTextExtractor.swift */; };
+		DA6737AF221B779794B33EE1 /* ReadAlongAligner.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA8D2171CE472FC7309825B6 /* ReadAlongAligner.swift */; };
+		DA6367DCA0A80D9370904B52 /* ReadAlongStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA338B0B0427FBD6D40E8C15 /* ReadAlongStore.swift */; };
+		DAF5EF95E73E4BE1406C911C /* ReadAlongViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA377C42893570040AC40B6F /* ReadAlongViewModel.swift */; };
+		DADC2BC0B6F04118021649C1 /* ReadAlongView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9E8D9EADBB488207350DE4 /* ReadAlongView.swift */; };
 		02C668174D24A70B4CD6FCB1 /* IntegrationConnectionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 269BB56618B150DCAA2CA5FB /* IntegrationConnectionStoreTests.swift */; };
 		048E8DAA13C4530F4419A030 /* MediaServerProvider+Icon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56AC45C580EED027394A645B /* MediaServerProvider+Icon.swift */; };
 		058C840BB5E944B2899BC769 /* ReviewPromptServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F83542FF9A240EC87E55AC8 /* ReviewPromptServiceTests.swift */; };
@@ -1181,6 +1187,12 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		DB81FBC548596F1F96511B38 /* ReadAlongTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAlongTests.swift; sourceTree = "<group>"; };
+		DADB1987438B5C01EFAE4DBC /* EpubTextExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpubTextExtractor.swift; sourceTree = "<group>"; };
+		DA8D2171CE472FC7309825B6 /* ReadAlongAligner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAlongAligner.swift; sourceTree = "<group>"; };
+		DA338B0B0427FBD6D40E8C15 /* ReadAlongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAlongStore.swift; sourceTree = "<group>"; };
+		DA377C42893570040AC40B6F /* ReadAlongViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAlongViewModel.swift; sourceTree = "<group>"; };
+		DA9E8D9EADBB488207350DE4 /* ReadAlongView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAlongView.swift; sourceTree = "<group>"; };
 		03ABF38C1641BC9BCAD3213B /* el */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = el; path = el.lproj/Intents.strings; sourceTree = "<group>"; };
 		056B7A76F1A44CEC30562382 /* IntegrationQuickConnectViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationQuickConnectViews.swift; sourceTree = "<group>"; };
 		0AE6A3EFE68BD9DC2E5ACF90 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Intents.strings; sourceTree = "<group>"; };
@@ -2197,6 +2209,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		DA2133449F780A8E542984C2 /* ReadAlong */ = {
+			isa = PBXGroup;
+			children = (
+				DADB1987438B5C01EFAE4DBC /* EpubTextExtractor.swift */,
+				DA8D2171CE472FC7309825B6 /* ReadAlongAligner.swift */,
+				DA338B0B0427FBD6D40E8C15 /* ReadAlongStore.swift */,
+				DA377C42893570040AC40B6F /* ReadAlongViewModel.swift */,
+				DA9E8D9EADBB488207350DE4 /* ReadAlongView.swift */,
+			);
+			path = ReadAlong;
+			sourceTree = "<group>";
+		};
 		1A3B1ADBE4710D12AF4A65BD /* GridLayout */ = {
 			isa = PBXGroup;
 			children = (
@@ -2543,6 +2567,7 @@
 				9EDB4EF25480E070F2786662 /* MediaServerIntegration */,
 				C35E04F1207E8D0F007D3370 /* Library */,
 				C3EC372A206EDB9A0094B4E8 /* Player */,
+				DA2133449F780A8E542984C2 /* ReadAlong */,
 				C35E04F2207E8D4C007D3370 /* Settings */,
 				9FBDDB9A27DD1346005FB447 /* Profile */,
 				637968802E76546D00D0FCB0 /* Search */,
@@ -2593,6 +2618,7 @@
 				689E2BCD29DC1D9253949A53 /* PlayableChapterTests.swift */,
 				9FB7C48C2835A2C1003B917E /* PlayerManagerTests.swift */,
 				B0B0F11E5EA1CA27D0000005 /* PlayerTimeSampleTests.swift */,
+				DB81FBC548596F1F96511B38 /* ReadAlongTests.swift */,
 				FEEDBABE0000000000000004 /* SharedWidgetStoreTests.swift */,
 				6279361D272D0CF50097837D /* Coordinators */,
 				418B6D141D2707F800F974FB /* Info.plist */,
@@ -5032,6 +5058,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA4027B6098CA6D5D6072447 /* EpubTextExtractor.swift in Sources */,
+				DA6737AF221B779794B33EE1 /* ReadAlongAligner.swift in Sources */,
+				DA6367DCA0A80D9370904B52 /* ReadAlongStore.swift in Sources */,
+				DAF5EF95E73E4BE1406C911C /* ReadAlongViewModel.swift in Sources */,
+				DADC2BC0B6F04118021649C1 /* ReadAlongView.swift in Sources */,
 				C451596D6866C856F3E5F7D1 /* IntegrationConnectionView.swift in Sources */,
 				C86098383F7FC099EED24AF7 /* IntegrationQuickConnectViews.swift in Sources */,
 				B14881000000000000000001 /* IntegrationCustomHeadersSectionView.swift in Sources */,
@@ -5436,6 +5467,7 @@
 				FED52673ACD975949EF9E219 /* PreferencesSyncServiceTests.swift in Sources */,
 				9FC1E4632814F80000522FA8 /* AccountServiceMock.swift in Sources */,
 				9FC1E4672815091A00522FA8 /* AccountServiceTests.swift in Sources */,
+				DB4ED004CEE8A5D8A2956474 /* ReadAlongTests.swift in Sources */,
 				E2C38F227319804D0AEC2AD9 /* HardcoverServiceTests.swift in Sources */,
 				4D8664086866E712E48B96B9 /* HardcoverOAuthTests.swift in Sources */,
 				E60060C58E5E4B24A431C381 /* LibraryOrganizerTests.swift in Sources */,
@@ -5939,7 +5971,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWatch/BookPlayerWatch.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWatch/Info.plist;
@@ -5980,7 +6012,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWatch/BookPlayerWatch.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWatch/Info.plist;
@@ -6018,7 +6050,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWatch/BookPlayerWatch.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWatch/Info.plist;
@@ -6051,7 +6083,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6096,7 +6128,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6139,7 +6171,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6185,7 +6217,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWidgets/Info.plist;
@@ -6223,7 +6255,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWidgets/Info.plist;
@@ -6259,7 +6291,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = BookPlayerWidgets/Info.plist;
@@ -6412,7 +6444,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = "$(inherited)";
 				FRAMEWORK_SEARCH_PATHS = (
@@ -6451,7 +6483,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -6543,7 +6575,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6589,7 +6621,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6633,7 +6665,7 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_IDENTITY = "";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				DYLIB_COMPATIBILITY_VERSION = 1;
@@ -6679,7 +6711,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				INFOPLIST_FILE = "Watch-Info.plist";
@@ -6717,7 +6749,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				INFOPLIST_FILE = "Watch-Info.plist";
@@ -6753,7 +6785,7 @@
 				CODE_SIGN_ENTITLEMENTS = BookPlayerWidgets/BookPlayerWidgets.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				INFOPLIST_FILE = "Watch-Info.plist";
@@ -6807,7 +6839,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -6847,7 +6879,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -6885,7 +6917,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -7000,7 +7032,7 @@
 				CODE_SIGN_IDENTITY = "Apple Distribution";
 				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
 				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 7;
 				DEVELOPMENT_TEAM = "$(inherited)";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

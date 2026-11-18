@@ -12,6 +12,7 @@ import SwiftUI
 import TipKit
 import WatchKit
 import MediaPlayer
+import WatchConnectivity
 
 class ExtensionDelegate: NSObject, WKApplicationDelegate, ObservableObject {
   static var contextManager = ContextManager()
@@ -133,7 +134,30 @@ class ExtensionDelegate: NSObject, WKApplicationDelegate, ObservableObject {
 
       self.coreServices = coreServices
 
+      Task { @MainActor [weak coreServices] in
+        await coreServices?.addUntrackedReceivedBooks()
+        ExtensionDelegate.contextManager.watchConnectivityService.setBookFileHandler { fileURL in
+          Task { @MainActor in
+            await coreServices?.addReceivedBook(at: fileURL)
+          }
+        }
+      }
+
       return coreServices
+    }
+  }
+
+  private func completeWhenNoContentPending(
+    _ task: WKWatchConnectivityRefreshBackgroundTask,
+    attemptsLeft: Int
+  ) {
+    guard WCSession.default.hasContentPending, attemptsLeft > 0 else {
+      task.setTaskCompletedWithSnapshot(false)
+      return
+    }
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+      self?.completeWhenNoContentPending(task, attemptsLeft: attemptsLeft - 1)
     }
   }
 
@@ -156,8 +180,9 @@ class ExtensionDelegate: NSObject, WKApplicationDelegate, ObservableObject {
           userInfo: nil
         )
       case let connectivityTask as WKWatchConnectivityRefreshBackgroundTask:
-        // Be sure to complete the connectivity task once you’re done.
-        connectivityTask.setTaskCompletedWithSnapshot(false)
+        // Be sure to complete the connectivity task once you’re done: here, once a book sent
+        // from the iPhone has been delivered (or after 25 s), so the watch isn't suspended mid-file
+        completeWhenNoContentPending(connectivityTask, attemptsLeft: 25)
       case let urlSessionTask as WKURLSessionRefreshBackgroundTask:
         // Be sure to complete the URL session task once you’re done.
         urlSessionTask.setTaskCompletedWithSnapshot(false)

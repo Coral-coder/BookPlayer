@@ -18,6 +18,8 @@ public class ImportOperation: Operation {
   public let libraryService: LibraryServiceProtocol
   public var processedFiles = [URL]()
   public var suggestedFolderName: String?
+  /// EPUBs from this import, put on the read-along ebooks shelf instead of the library
+  public var shelvedEbooks = [URL]()
   /// A folder the files come from that this import owns, like the Transfer from Computer flow's
   /// holding folder: it never suggests a folder name, and it's removed when the import finishes.
   private let ownedSourceRoot: URL?
@@ -264,6 +266,21 @@ public class ImportOperation: Operation {
     if shouldUnzip(currentFile) {
       self.handleZip(file: currentFile, remainingFiles: mutableFiles)
       return
+    }
+
+    /// An ebook isn't a library item: it waits on the read-along shelf to be paired with its
+    /// audiobook (player → More → Read Along). A failed copy only skips it
+    if ReadAlongStore.isEbook(currentFile) {
+      let accessGranted = currentFile.startAccessingSecurityScopedResource()
+      defer { if accessGranted { currentFile.stopAccessingSecurityScopedResource() } }
+
+      if let shelved = try? ReadAlongStore.addToShelf(currentFile) {
+        self.shelvedEbooks.append(shelved)
+        if DataManager.isAppManagedSource(currentFile) {
+          try? FileManager.default.removeItem(at: currentFile)
+        }
+      }
+      return processFile(from: mutableFiles)
     }
 
     // Add support for iCloud documents

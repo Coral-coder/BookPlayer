@@ -44,7 +44,7 @@ struct SettingsView: View {
       /// A list rather than a form: its selection is what the links set, which highlights the
       /// screen shown beside it
       List(selection: $selection) {
-        if accountService.accessLevel == .free {
+        if accountService.accessLevel == .free, !AppEnvironment.isPersonalBuild {
           SettingsProBannerSectionView(showPro: showPro)
         }
         SettingsAppearanceSectionView()

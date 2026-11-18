@@ -49,6 +49,25 @@ final class RemoteItemListViewModel: ObservableObject {
     }
 
     self.bindCurrentItemObserver()
+    self.bindLocalLibraryObserver()
+  }
+
+  /// Books sent from the iPhone, or removed here, change the list without a sync
+  func bindLocalLibraryObserver() {
+    NotificationCenter.default.publisher(for: .watchLocalLibraryChanged)
+      .receive(on: DispatchQueue.main)
+      .sink { [weak self] _ in
+        guard let self else { return }
+
+        self.items =
+          self.coreServices.libraryService.fetchContents(
+            at: self.folderRelativePath,
+            limit: nil,
+            offset: nil
+          ) ?? []
+        self.lastPlayedItem = self.coreServices.libraryService.getLastPlayedItems(limit: 1)?.first
+      }
+      .store(in: &disposeBag)
   }
 
   func bindCurrentItemObserver() {

@@ -206,6 +206,8 @@ public final class AccountService: AccountServiceProtocol {
   }
 
   public func hasPlusAccess() -> Bool {
+    if AppEnvironment.isPersonalBuild { return true }
+
     guard let cachedInfo = Purchases.shared.cachedCustomerInfo else {
       return getAccount()?.donationMade == true
     }

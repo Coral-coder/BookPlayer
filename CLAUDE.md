@@ -13,6 +13,20 @@ persistence, and auth/entitlement handling**. Default branch: **`develop`**.
 
 ---
 
+## This fork: Driftwood (personal build)
+
+`AppEnvironment.isPersonalBuild` (`Shared/Utils/AppEnvironment.swift`, `true` here) turns this fork into a
+personal build named **Driftwood** (`CFBundleDisplayName`; product and target names unchanged): no
+purchases (`isPurchaseEnabled` false), `hasPlusAccess()` always true, and no Profile tab, Pro banner, tip
+jar, second onboarding or watch account settings. Sync stays off (no `pro`/`lite` entitlement without
+RevenueCat), so the watch gets books from the iPhone instead of the cloud: the library's **Send to Apple
+Watch** (`PhoneWatchConnectivityService.sendBookToWatch`, `WCSession.transferFile`, metadata `kind: bookFile`)
+→ `WatchConnectivityService.session(_:didReceive:)` moves the file into the watch's Processed folder before
+returning (WatchConnectivity deletes it after) → `CoreServices.addReceivedBook` inserts it. A launch sweep
+(`addUntrackedReceivedBooks`, sync off only) adds files that arrived while the watch was suspended. With sync
+off, the watch's swipe action deletes a book instead of offloading it (nothing to download it from). Signing
+and TestFlight steps: `PERSONAL_BUILD.md`.
+
 ## ⚠️ Repo layout gotcha (read this first)
 
 The on-disk tree is deeply misleading. Before judging *where* code should live, know this:
@@ -592,7 +606,7 @@ lines). It is the highest-risk file in the app.
   `.jellyfinConnection`, `.audiobookshelfConnection`, `.hardcoverToken`, `.hardcoverSession`.
 - **Correction to older docs: the Keychain is NOT scoped via an App Group / `kSecAttrAccessGroup`** — there is no
   access group set; sharing relies on the default app access group. (The App Group
-  `group.$(BP_BUNDLE_IDENTIFIER).files` is used for `UserDefaults.sharedDefaults` and file storage, **not** the
+  `group.$(BP_BUNDLE_IDENTIFIER)` is used for `UserDefaults.sharedDefaults` and file storage, **not** the
   Keychain.)
 - Every mutation emits `valueUpdatedPublisher.send((key, deleted:))`; `HardcoverService` observes it to
   start/stop tracking on token changes.
@@ -827,7 +841,7 @@ data, and share the error type `MediaServerIntegration/IntegrationError.swift` (
   build. **New service logic should come with a test** in `BookPlayerTests/` (XCTest only — no Swift Testing).
 - **App Group correctness:** data/defaults/files shared with widgets/watch/extension must use the App Group
   container / `UserDefaults.sharedDefaults`, not `.standard`. The App Group id
-  `group.$(BP_BUNDLE_IDENTIFIER).files` must stay consistent across the app, watch, widgets, and share-extension
+  `group.$(BP_BUNDLE_IDENTIFIER)` must stay consistent across the app, watch, widgets, and share-extension
   entitlements — it is the sole data channel for widgets and the share extension.
 - **Combine:** long-lived subscriptions → `private var disposeBag = Set<AnyCancellable>()` + `.store(in:)`;
   single-purpose → a named `AnyCancellable?` that is `.cancel()`'d before rebind. `[weak self]` in sinks/closures
