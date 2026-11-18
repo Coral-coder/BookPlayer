@@ -114,9 +114,9 @@ found = asc.call("GET", "/bundleIds?filter[identifier]=" + urllib.parse.quote(id
 item = next((i for i in found.get("data", []) if i["attributes"]["identifier"] == ident), None)
 if not item:
     print("App ID", ident, "not found"); sys.exit(0)
-caps = asc.call("GET", "/bundleIds/{}/bundleIdCapabilities?limit=50".format(item["id"]), token)
+caps = asc.call("GET", "/bundleIds/{}/bundleIdCapabilities".format(item["id"]), token)
 print("Capabilities on", ident + ":", sorted(c["attributes"].get("capabilityType", "?") for c in caps.get("data", [])))
-profiles = asc.call("GET", "/bundleIds/{}/profiles?limit=50".format(item["id"]), token).get("data", [])
+profiles = asc.call("GET", "/bundleIds/{}/profiles".format(item["id"]), token).get("data", [])
 profiles.sort(key=lambda p: p["attributes"].get("createdDate", ""))
 if profiles:
     newest = profiles[-1]["attributes"]

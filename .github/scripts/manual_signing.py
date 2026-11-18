@@ -98,7 +98,7 @@ def ensure_bundle_id(identifier: str, name: str, token: str) -> str:
 
 
 def ensure_app_groups(bundle_resource_id: str, identifier: str, token: str) -> None:
-    status, body = request("GET", "/bundleIds/{}/bundleIdCapabilities?limit=50".format(bundle_resource_id), token)
+    status, body = request("GET", "/bundleIds/{}/bundleIdCapabilities".format(bundle_resource_id), token)
     if status == 200 and any(c["attributes"].get("capabilityType") == "APP_GROUPS" for c in body.get("data", [])):
         return
     status, body = request("POST", "/bundleIdCapabilities", token, {"data": {
