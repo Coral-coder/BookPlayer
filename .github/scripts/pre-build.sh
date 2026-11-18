@@ -101,6 +101,32 @@ XCCONFIG
 done
 echo "Wrote BuildConfiguration/{Debug,Release}.xcconfig for $bundle_id"
 
+# Run by hand with build = "diag": report the App ID's capabilities and its newest profile's
+# entitlements (names only), then stop before archiving
+if [ "$(jq -r '.inputs.build // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)" = "diag" ]; then
+  python3 - "$bundle_id" <<'PY'
+import base64, os, plistlib, subprocess, sys, urllib.parse
+sys.path.insert(0, os.path.join(os.environ["GITHUB_WORKSPACE"], ".github", "scripts"))
+import asc
+token = asc.make_token()
+ident = sys.argv[1]
+found = asc.call("GET", "/bundleIds?filter[identifier]=" + urllib.parse.quote(ident) + "&limit=20", token)
+item = next((i for i in found.get("data", []) if i["attributes"]["identifier"] == ident), None)
+if not item:
+    print("App ID", ident, "not found"); sys.exit(0)
+caps = asc.call("GET", "/bundleIds/{}/bundleIdCapabilities?limit=50".format(item["id"]), token)
+print("Capabilities on", ident + ":", sorted(c["attributes"].get("capabilityType", "?") for c in caps.get("data", [])))
+profiles = asc.call("GET", "/bundleIds/{}/profiles?limit=50".format(item["id"]), token).get("data", [])
+profiles.sort(key=lambda p: p["attributes"].get("createdDate", ""))
+if profiles:
+    newest = profiles[-1]["attributes"]
+    decoded = subprocess.run(["security", "cms", "-D"], input=base64.b64decode(newest["profileContent"]), capture_output=True).stdout
+    print("Newest profile", newest.get("name"), "entitlements:", sorted(plistlib.loads(decoded).get("Entitlements", {}).keys()))
+PY
+  echo "::error::Diagnostics only (build = diag): stopping before the archive"
+  exit 1
+fi
+
 # Xcode 27.1 can't sign in with the API key on GitHub's runner, so when a distribution
 # certificate is available, sign and upload here, through the API instead
 if [ -n "$(jq -r '.BUILD_CERTIFICATE_P12_BASE64 // empty' <<<"$SECRETS_JSON")" ]; then
