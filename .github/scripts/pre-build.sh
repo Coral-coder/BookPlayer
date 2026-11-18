@@ -117,7 +117,7 @@ if not item:
 caps = asc.call("GET", "/bundleIds/{}/bundleIdCapabilities".format(item["id"]), token)
 print("Capabilities on", ident + ":", sorted(c["attributes"].get("capabilityType", "?") for c in caps.get("data", [])))
 profiles = asc.call("GET", "/bundleIds/{}/profiles".format(item["id"]), token).get("data", [])
-profiles.sort(key=lambda p: p["attributes"].get("createdDate", ""))
+profiles.sort(key=lambda p: p["attributes"].get("createdDate") or "")
 if profiles:
     newest = profiles[-1]["attributes"]
     decoded = subprocess.run(["security", "cms", "-D"], input=base64.b64decode(newest["profileContent"]), capture_output=True).stdout
